@@ -371,7 +371,6 @@ def main():
                 decon.rg_state(rg_facts, 'enabled')
                 # TODO: Not sure what to do with the quotas after RG is restored. May need to update rg_facts.
                 rg_should_exist = True
-                pass
             elif amodule.params['state'] == 'absent':
                 # destroy permanently
                 decon.rg_delete(arg_rg_id=rg_id, arg_permanently=True)
@@ -390,7 +389,7 @@ def main():
             if amodule.params['state'] in ('present', 'enabled'):
                 # need to re-provision RG
                 decon.check_amodule_argument('rg_name')
-                # As we alreafy have validated account ID we can create RG and get rg_id on success
+                # As we already have validated account ID we can create RG and get rg_id on success
                 # pass empty string for location code, rg_provision will select the 1st location  
                 rg_id = decon.rg_provision(validated_acc_id,
                                             amodule.params['rg_name'], decon.decort_username,

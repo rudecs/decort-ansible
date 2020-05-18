@@ -1257,6 +1257,11 @@ class DecortController(object):
         ret_rg_id = 0
         ret_rg_dict = dict()
 
+        if not arg_rg_id:
+            self.result['failed'] = True
+            self.result['msg'] = "rg_get_by_id(): zero RG ID specified."
+            self.amodule.fail_json(**self.result)
+
         api_params = dict(rgId=arg_rg_id,)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/get", api_params)
         if api_resp.status_code == 200:
@@ -1275,12 +1280,13 @@ class DecortController(object):
         However, it does fail the run if RG cannot be located by arg_rg_id (if non zero specified) or if API errors
         occur.
 
-        @param (int) arg_account_id: ID of the account where to look for the RG.
+        @param (int) arg_account_id: ID of the account where to look for the RG. Set to 0 if RG is to be located by
+        its ID.
         @param (int) arg_rg_id: integer ID of the RG to be found. If non-zero RG ID is passed, account ID and RG name
         are ignored. However, RG must be present in this case, as knowing its ID implies it already exists, otherwise
         method will fail.
         @param (string) arg_rg_name: string that defines the name of RG to be found. This parameter is case sensitive.
-        @param (bool) arg_check_state: boolean that tells the method to report RGs in valid states only.
+        @param (bool) arg_check_state: tells the method to report RGs in valid states only.
 
         @return: ID of the RG, if found. Zero otherwise.
         @return: dictionary with RG facts if RG is present. Empty dictionary otherwise. None on error.
@@ -1289,7 +1295,7 @@ class DecortController(object):
         # Resource group can be in one of the following states:
         # MODELED, CREATED, DISABLING, DISABLED, ENABLING, DELETING, DELETED, DESTROYED, DESTROYED 
         #
-        # Transient state (ending with ING) are invalid from RG manipularion viewpoint 
+        # Transient state (ending with ING) are invalid from RG manipulation viewpoint 
         #
 
         RG_INVALID_STATES = ["MODELED"]
@@ -1317,7 +1323,7 @@ class DecortController(object):
                 self.result['failed'] = True
                 self.result['msg'] = "rg_find(): cannot find RG by name if account ID is zero or less."
                 self.amodule.fail_json(**self.result)
-            # try to locate RG by name - start with gettin all RGs IDs within the specified account
+            # try to locate RG by name - start with getting all RGs IDs within the specified account
             api_params['accountId'] = arg_account_id
             api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/accounts/get", api_params)
             if api_resp.status_code == 200: 
@@ -1416,7 +1422,7 @@ class DecortController(object):
 
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/create", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
-        # API /restmachine/cloudapi/cloudspaces/create returns ID of the newly created VDC on success
+        # API /restmachine/cloudapi/rg/create returns ID of the newly created RG on success
         self.result['failed'] = False
         self.result['changed'] = True
         ret_rg_id = int(api_resp.content.decode('utf8'))
@@ -1510,8 +1516,8 @@ class DecortController(object):
     def rg_state(self, arg_rg_dict, arg_desired_state):
         """Enable or disable RG.
 
-        @param arg_rg_dict: dictionary with the target VDC facts as returned by vdc_find(...) method or
-        .../rg/get API call to obtain the data.
+        @param arg_rg_dict: dictionary with the target RG facts as returned by rg_find(...) method or
+        .../rg/get API call.
         @param arg_desired_state: the desired state for this RG. Valid states are 'enabled' and 'disabled'.
         """
 
@@ -1617,20 +1623,22 @@ class DecortController(object):
             api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/accounts/get", api_params)
             if api_resp.status_code == 200:
                 account_details = json.loads(api_resp.content.decode('utf8'))
-                account_record = {
-                    'id': account_details['id'],
-                    'name': account_details['name'],
-                }
-                return account_details['id'], account_record
+                return account_details['id'], account_details
         else:
             api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/accounts/list", api_params)
             if api_resp.status_code == 200:
                 # Parse response to see if a account matching arg_account_name is found in the output
                 # If it is found, assign its ID to the return variable and copy dictionary with the facts
                 accounts_list = json.loads(api_resp.content.decode('utf8'))
-                for account_record in accounts_list:
-                    if account_record['name'] == arg_account_name:
-                        return account_record['id'], account_record
+                for runner in accounts_list:
+                    if runner['name'] == arg_account_name:
+                        # get detailed information about the account from "accounts/get" call as 
+                        # "accounts/list" does not return all necessary fields
+                        api_params['accountId'] = runner['id']
+                        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/accounts/get", api_params)
+                        if api_resp.status_code == 200:
+                            account_details = json.loads(api_resp.content.decode('utf8'))
+                            return account_details['id'], account_details
 
         return 0, None
 
@@ -1789,4 +1797,391 @@ class DecortController(object):
                         break
 
         return ret_gid
+
+    #
+    # ViNS management
+    #
+
+    def vins_delete(self, vins_id, permanently=False):
+        """Deletes specified ViNS.
+
+        @param (int) vins_id: integer value that identifies the ViNS to be deleted.
+        @param (bool) arg_permanently: a bool that tells if deletion should be permanent. If False, the ViNS will be
+        marked as DELETED and placed into a trash bin for predefined period of time (usually, a few days). Until
+        this period passes this ViNS can be restored by calling the corresponding 'restore' method.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_delete")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['changed'] = False
+            self.result['msg'] = "vins_delete() in check mode: delete ViNS ID {} was requested.".format(vins_id)
+            return
+
+        #
+        # TODO: need decision if deleting a VINS with connected computes is allowed (aka force=True)
+        # and implement this decision accordingly.
+        #
+
+        api_params = dict(vinsId=vins_id,
+                          # force=True | False,
+                          permanently=permanently,)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/delete", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+
+    def _vins_get_by_id(self, vins_id):
+        """Helper function that locates ViNS by ID and returns ViNS facts. This function
+        expects that the ViNS exists (albeit in DELETED or DESTROYED state) and will return
+        0 ViNS ID if not found.
+
+        @param (int) vins_id: ID of the ViNS to find and return facts for.
+
+        @return: ViNS ID and a dictionary of ViNS facts as provided by vins/get API call. 
+        
+        Note that if it fails to find the ViNS with the specified ID, it may return 0 for ID 
+        and empty dictionary for the facts. So it is suggested to check the return values 
+        accordingly in the upstream code.
+        """
+        ret_vins_id = 0
+        ret_vins_dict = dict()
+
+        if not vins_id:
+            self.result['failed'] = True
+            self.result['msg'] = "vins_get_by_id(): zero ViNS ID specified."
+            self.amodule.fail_json(**self.result)
+
+        api_params = dict(vinsId=vins_id,)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/get", api_params)
+        if api_resp.status_code == 200:
+            ret_vins_id = vins_id
+            ret_vins_dict = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("vins_get_by_id(): failed to get VINS by ID {}. HTTP code {}, "
+                                      "response {}.").format(vins_id, api_resp.status_code, api_resp.reason)
+
+        return ret_vins_id, ret_vins_dict
+
+    def vins_find(self, vins_id, vins_name="", account_id=0, rg_id=0, check_state=True):
+        """Find specified ViNS. 
+       
+        @param (int) vins_id: ID of the ViNS. If non-zero vins_id is specified, all other arguments 
+        are ignored, ViNS must exist and is located by its ID only. 
+        @param (string) vins_name: If vins_id is 0, then vins_name is mandatory. Further search for 
+        ViNS is based on combination of account_id and rg_id. If account_id is non-zero, then rg_id 
+        is ignored and ViNS is supposed to exist at account level. 
+        @param (int) account_id: set to non-zero value to search for ViNS by name at this account level.
+        @param (int) rg_id: set to non-zero value to search for ViNS by name at this RG level. Note, that
+        in this case account_id should be set to 0.
+        @param (bool) check_state: tells the method to report ViNSes in valid states only. Set check_state 
+        to False if you want to check if specified ViNS exists at all without failing the module execution. 
+
+        @returns: ViNS ID and dictionary with ViNS facts. It may return zero ID and empty dictionary
+        if no ViNS found and check_state=False, so make sure to check return values in the upstream
+        code accordingly.
+        """
+
+        # transient and deleted/destroyed states are deemed invalid
+        VINS_INVALID_STATES = ["ENABLING", "DISABLING", "DELETING", "DELETED", "DESTROYING", "DESTROYED"]
+
+        ret_vins_id = 0
+        # api_params = dict()
+        ret_vins_facts = None
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_find")
+
+        if vins_id > 0:
+            ret_vins_id, ret_vins_facts = self._vins_get_by_id(vins_id)
+            if not ret_vins_id:
+                self.result['failed'] = True
+                self.result['msg'] = "vins_find(): cannot find ViNS by ID {}.".format(vins_id)
+                self.amodule.fail_json(**self.result)
+            if not check_state or ret_vins_facts['status'] not in VINS_INVALID_STATES:
+                return ret_vins_id, ret_vins_facts
+            else:
+                return 0, None
+        elif vins_name != "":
+            if account_id > 0:
+                # ignore rg_id and search for ViNS at account level
+                validated_id, validated_facts = self.account_find("", account_id)
+                if not validated_id:
+                    self.result['failed'] = True
+                    self.result['msg'] = "vins_find(): cannot find Account ID {}.".format(account_id)
+                    self.amodule.fail_json(**self.result)
+                # TODO: account's 'vins' attribute does not list deleted or destroyed ViNSes! 
+                for runner in validated_facts['vins']:
+                    # api_params['vinsId'] = runner
+                    ret_vins_id, ret_vins_facts = self._vins_get_by_id(runner)
+                    if ret_vins_id and ret_vins_facts['name'] == vins_name:
+                        if not check_state or ret_vins_facts['status'] not in VINS_INVALID_STATES:
+                            return ret_vins_id, ret_vins_facts
+                        else:
+                            return 0, None
+            elif rg_id > 0:
+                # search for ViNS at RG level
+                validated_id, validated_facts = self._rg_get_by_id(rg_id)
+                if not validated_id:
+                    self.result['failed'] = True
+                    self.result['msg'] = "vins_find(): cannot find RG ID {}.".format(rg_id)
+                    self.amodule.fail_json(**self.result)
+                # TODO: RG's 'vins' attribute does not list deleted or destroyed ViNSes! 
+                for runner in validated_facts['vins']:
+                    # api_params['vinsId'] = runner
+                    ret_vins_id, ret_vins_facts = self._vins_get_by_id(runner)
+                    if ret_vins_id and ret_vins_facts['name'] == vins_name:
+                        if not check_state or ret_vins_facts['status'] not in VINS_INVALID_STATES:
+                            return ret_vins_id, ret_vins_facts
+                        else:
+                            return 0, None
+            else: # both Account ID and RG ID are zero - fail the module
+                self.result['failed'] = True
+                self.result['msg'] = ("vins_find(): cannot find ViNS by name '{}' "
+                                      "when no account ID or RG ID is specified.").format(vins_name)
+                self.amodule.fail_json(**self.result)
+        else: # ViNS ID is 0 and ViNS name is emtpy - fail the module
+            self.result['failed'] = True
+            self.result['msg'] = "vins_find(): cannot find ViNS with zero ID and empty name."
+            self.amodule.fail_json(**self.result)
+
+        return 0, None
+
+    def vins_provision(self, vins_name, account_id, rg_id=0, ipcidr="", ext_net_id=-1, ext_ip_addr="", desc=""):
+        """Provision ViNS according to the specified arguments.
+        If critical error occurs the embedded call to API function will abort further execution of the script
+        and relay error to Ansible.
+        Note, that when creating ViNS at account level, default location under DECORT controller will be 
+        selected automatically.
+
+        @param (int) account_id: ID of the account where ViNS will be created. To create ViNS at account 
+        level specify non-zero account ID and zero RG ID.
+        @param (string) rg_id: ID of the RG where ViNS will be created. If non-zero RG ID is specified, 
+        ViNS will be created at this RG level.
+        @param (string) ipcidr: optional IP network address to use for internal ViNS network.
+        @param (int) ext_net_id: optional ID of the external network to connect this ViNS to. Specify -1
+        to created isolated ViNS, 0 to let platform select default external network, or ID of the network
+        to ust. Note: this parameter is ignored for ViNS created at account level.
+        @param (string) ext_ip_addr: optional IP address of the external network connection for this ViNS. If
+        emtpy string is passed when ext_net_id >= 0, the platform will assign IP address automatically. If
+        explicitly specified IP address is invalid or already occupied, the method will fail. Note: this 
+        parameter is ignored for ViNS created at account level.
+        @param (string) desc: optional text description of this ViNS. 
+
+        @return: ID of the newly created ViNS (in Ansible check mode 0 is returned).
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_provision")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['changed'] = False
+            self.result['msg'] = ("vins_provision() in check mode: provision ViNS name '{}' was "
+                                  "requested.").format(vins_name)
+            return 0
+
+        if vins_name == "":
+            self.result['failed'] = True
+            self.result['msg'] = "vins_provision(): ViNS name cannot be empty."
+            self.amodule.fail_json(**self.result)
+
+        api_url = ""
+        api_params = None
+        if account_id and not rg_id:
+            api_url = "/restmachine/cloudapi/vins/createInAccount"
+            target_gid = self.gid_get("")
+            if not target_gid:
+                self.result['failed'] = True
+                self.result['msg'] = "vins_provision() failed to obtain Grid ID for default location."
+                self.amodule.fail_json(**self.result)
+            api_params = dict(
+                name=vins_name,
+                accountId=account_id,
+                gid=target_gid,
+            )
+        elif rg_id:
+            api_url = "/restmachine/cloudapi/vins/createInRG"
+            api_params = dict(
+                name=vins_name,
+                rgId=rg_id,
+                extNetId=ext_net_id,
+            )
+            if ext_ip_addr:
+                api_params['extIp'] = ext_ip_addr
+        else:
+            self.result['failed'] = True
+            self.result['msg'] = "vins_provision(): either account ID or RG ID must be specified."
+            self.amodule.fail_json(**self.result)
+
+        if ipcidr != "":
+            api_params['ipcidr'] = ipcidr
+            api_params['desc'] = desc
+
+        api_resp = self.decort_api_call(requests.post, api_url, api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        # API /restmachine/cloudapi/vins/create*** returns ID of the newly created ViNS on success
+        self.result['failed'] = False
+        self.result['changed'] = True
+        ret_vins_id = int(api_resp.content.decode('utf8'))
+        return ret_vins_id
+
+    def vins_restore(self, vins_id):
+        """Restores previously deleted ViNS identified by its ID. For restore to succeed 
+        the ViNS must be in 'DELETED' state.
+
+        @param vins_id: ID of the ViNS to restore.
+
+        @returns: nothing on success. On error this method will abort module execution.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_restore")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['changed'] = False
+            self.result['msg'] = "vins_restore() in check mode: restore ViNS ID {} was requested.".format(vins_id)
+            return
+
+        api_params = dict(vinsId=vins_id,
+                          reason="Restored on user {} request by DECORT Ansible module.".format(self.decort_username),)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/restore", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+
+    def vins_state(self, vins_dict, desired_state):
+        """Enable or disable ViNS.
+
+        @param vins_dict: dictionary with the target ViNS facts as returned by vins_find(...) method or
+        .../vins/get API call.
+        @param desired_state: the desired state for this ViNS. Valid states are 'enabled' and 'disabled'.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_state")
+
+        NOP_STATES_FOR_VINS_CHANGE = ["MODELED", "DISABLING", "ENABLING", "DELETING", "DELETED", "DESTROYING", "DESTROYED"]
+        VALID_TARGET_STATES = ["enabled", "disabled"]
+
+        if vins_dict['status'] in NOP_STATES_FOR_VINS_CHANGE:
+            self.result['failed'] = False
+            self.result['msg'] = ("vins_state(): no state change possible for ViNS ID {} "
+                                  "in its current state '{}'.").format(vins_dict['id'], vins_dict['status'])
+            return
+
+        if desired_state not in VALID_TARGET_STATES:
+            self.result['failed'] = False
+            self.result['warning'] = ("vins_state(): unrecognized desired state '{}' requested "
+                                      "for ViNS ID {}. No ViNS state change will be done.").format(desired_state,
+                                                                                            vins_dict['id'])
+            return
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['changed'] = False
+            self.result['msg'] = ("vins_state() in check mode: setting state of ViNS ID {}, name '{}' to "
+                                  "'{}' was requested.").format(vins_dict['id'],vins_dict['name'],
+                                                                desired_state)
+            return
+
+        vinsstate_api = ""  # this string will also be used as a flag to indicate that API call is necessary
+        api_params = dict(vinsId=vins_dict['id'],
+                          reason='Changed by DECORT Ansible module, vins_state method.')
+
+        if vins_dict['status'] in ["CREATED", "ENABLED"] and desired_state == 'disabled':
+            rgstate_api = "/restmachine/cloudapi/vins/disable"
+        elif vins_dict['status'] == "DISABLED" and desired_state == 'enabled':
+            rgstate_api = "/restmachine/cloudapi/vins/enable"
+
+        if vinsstate_api != "":
+            self.decort_api_call(requests.post, vinsstate_api, api_params)
+            # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['failed'] = False
+            self.result['changed'] = True
+        else:
+            self.result['failed'] = False
+            self.result['msg'] = ("vins_state(): no state change required for ViNS ID {} from current "
+                                  "state '{}' to desired state '{}'.").format(vins_dict['id'],
+                                                                              vins_dict['status'],
+                                                                              desired_state)
+        return
+
+    def vins_update(self, vins_dict, ext_net_id, ext_ip_addr=""):
+        """Update ViNS. Currently only updates to the external network connection settings and
+        external IP address assignment are implemented.
+        Note that as ViNS created at account level cannot have external connections, attempt 
+        to update such ViNS will have no effect.
+
+        @param (dict) vins_dict: dictionary with target ViNS details as returned by vins_find() method.
+        @param (int) ext_net_id: sets ViNS network connection status. Pass -1 to disconnect ViNS from 
+        external network or positive network ID to connect to the specified external network.
+        @param (string) ext_ip_addr: optional IP address to assign to the external network connection 
+        of this ViNS.
+        """
+
+        api_params = dict(vinsId=vins_dict['id'],)
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_update")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['changed'] = False
+            self.result['msg'] = ("vins_update() in check mode: updating ViNS ID {}, name '{}' "
+                                  "was requested.").format(vins_dict['id'],vins_dict['name'])
+            return
+
+        if not vins_dict['rgid']:
+            # this ViNS exists at account level - no updates are possible
+            self.result['warning'] = ("vins_update(): no update is possible for ViNS ID {} "
+                                      "as it exists at account level.").format(vins_dict['id'])
+            return
+
+        gw_config = None
+        if vins_dict['vnfs'].get('GW'):
+            gw_config = vins_dict['vnfs']['GW']['config']
+
+        if ext_net_id < 0:
+            # Request to have ViNS disconnected from external network
+            if gw_config:
+                # ViNS is connected to external network indeed - call API to disconnect; otherwise - nothing to do
+                self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/extNetDisconnect", api_params)
+                self.result['failed'] = False
+                self.result['changed'] = True
+                # On success the above call will return here. On error it will abort execution by calling fail_json.
+        elif ext_net_id > 0:
+            if gw_config:
+                # Request to have ViNS connected to the specified external network
+                # First check that if we are not connected to the same network already; otherwise - nothing to do
+                if gw_config['ext_net_id'] != ext_net_id:
+                    # disconnect from current, we already have vinsId in the api_params
+                    self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/extNetDisconnect", api_params)
+                    self.result['changed'] = True
+                    # connect to the new
+                    api_params['netId'] = ext_net_id
+                    api_params['ip'] = ext_ip_addr
+                    self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/extNetConnect", api_params)
+                    self.result['failed'] = False
+                    # On success the above call will return here. On error it will abort execution by calling fail_json.
+                else:
+                    self.result['changed'] = False
+                    self.result['failed'] = False
+                    self.result['warning'] = ("vins_update(): ViNS ID {} is already connected to ext net ID {}, "
+                                              "ignore ext IP address change if any.").format(vins_dict['id'],
+                                                                                             ext_net_id)
+        else: # ext_net_id = 0, i.e. connect ViNS to default network
+            # we will connect ViNS to default network only if it is NOT connected to any ext network yet
+            if not gw_config:
+                api_params['netId'] = 0
+                self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/extNetConnect", api_params)
+                self.result['changed'] = True
+                self.result['failed'] = False
+            else:
+                self.result['changed'] = False
+                self.result['failed'] = False
+                self.result['warning'] = ("vins_update(): ViNS ID {} is already connected to ext net ID {}, "
+                                          "no reconnection to default network will be done.").format(vins_dict['id'],
+                                                                                                     gw_config['ext_net_id'])
+
+        return
 
