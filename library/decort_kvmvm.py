@@ -107,7 +107,7 @@ options:
         required: no
     id:
         description:
-        - ID of the VM.
+        - ID of the KVM VM to manage.
         - 'Either I(id) or a combination of VM name I(name) and RG related parameters (either I(rg_id) or a pair of
            I(account_name) and I(rg_name) is required to manage an existing VM.'
         - 'This parameter is not required (and ignored) when creating new VM as VM ID is assigned by cloud platform

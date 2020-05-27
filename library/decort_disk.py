@@ -241,7 +241,7 @@ from ansible.module_utils.decort_utils import *
 
 
 def decort_disk_package_facts(disk_facts, check_mode=False):
-    """Package a dictionary of disk facts according to the decort_vins module specification. 
+    """Package a dictionary of disk facts according to the decort_disk module specification. 
     This dictionary will be returned to the upstream Ansible engine at the completion of 
     the module run.
 
@@ -328,13 +328,6 @@ def decort_disk_parameters():
         workflow_callback=dict(type='str', required=False),
         workflow_context=dict(type='str', required=False),
     )
-
-# Workflow digest:
-# 1) authenticate to DECORT controller & validate authentication by issuing API call - done when creating DECORTController
-# 2) check if the ViNS with this id or name exists under specified account / resource group
-# 3) if ViNS does not exist -> deploy
-# 4) if ViNS exists: check desired state, desired configuration -> initiate action(s) accordingly
-# 5) report result to Ansible
 
 def main():
     module_parameters = decort_disk_parameters()

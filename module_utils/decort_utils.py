@@ -645,157 +645,6 @@ class DecortController(object):
 
         return ret_comp_id, ret_comp_dict, validated_rg_id
 
-    def vm_portforwards(self, arg_vm_dict, arg_pfw_specs):
-        """Manage VM port forwarding rules in a smart way. This method takes desired port forwarding rules as
-        an argument and compares it with the existing port forwarding rules
-
-        @param arg_vm_dict: dictionary with VM facts. It identifies the VM for which network configuration is
-        requested.
-        @param arg_pfw_specs: desired network specifications.
-        """
-
-        #
-        #
-        # Strategy for port forwards management:
-        # 1) obtain current port forwarding rules for the target VM
-        # 2) create a delta list of port forwards (rules to add and rules to remove)
-        #   - full match between existing & requested = ignore, no update of pfw_delta
-        #   - existing rule not present in requested list => copy to pfw_delta and mark as 'delete'
-        #   - requested rule not present in the existing list => copy to pfw_delta and mark as 'create'
-        # 3) provision delta list (first delete rules marked for deletion, next add rules mark for creation)
-        #
-
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vm_portforwards")
-
-        if self.amodule.check_mode:
-            self.result['failed'] = False
-            self.result['changed'] = False
-            self.result['msg'] = "vm_portforwards() in check mode: port forwards configuration change requested."
-            return
-
-        pfw_api_base = "/restmachine/cloudapi/portforwarding/"
-        pfw_api_params = dict(rgId=arg_vm_dict['rgId'],
-                              machineId=arg_vm_dict['id'])
-        api_resp = self.decort_api_call(requests.post, pfw_api_base + "list", pfw_api_params)
-        existing_pfw_list = json.loads(api_resp.content.decode('utf8'))
-
-        if not len(arg_pfw_specs) and not len(existing_pfw_list):
-            # Desired & existing port forwarding rules both empty - exit
-            self.result['failed'] = False
-            self.result['msg'] = ("vm_portforwards(): new and existing port forwarding lists both are empty - "
-                                  "nothing to do. No change applied to VM ID {}.").format(arg_vm_dict['id'])
-            return
-
-        # pfw_delta_list will be a list of dictionaries that describe _changes_ to the port forwarding rules
-        # that existed for the target VM at the moment we entered this method.
-        # The dictionary has the following keys:
-        #   ext_port - integer, external port number
-        #   int_port - integer, internal port number
-        #   proto - string, either 'tcp' or 'udp'
-        #   action - string, either 'delete' or 'create'
-        #   id - the ID of existing port forwarding rule that should be deleted (applicable when action='delete')
-        # NOTE: not all keys may exist in the resulting list!
-        pfw_delta_list = []
-
-        # Mark all requested pfw rules as new - if we find a match later, we will mark corresponding rule
-        # as 'new'=False
-        for requested_pfw in arg_pfw_specs:
-            requested_pfw['new'] = True
-
-        for existing_pfw in existing_pfw_list:
-            existing_pfw['matched'] = False
-            for requested_pfw in arg_pfw_specs:
-                # TODO: portforwarding API needs refactoring.
-                # NOTE!!! Another glitch in the API implementation - .../portforwarding/list returns port numbers as strings,
-                # while .../portforwarding/create expects them as integers!!!
-                # Also: added type casting to int for requested_pfw in case the value comes as string from a complex
-                # variable in a loop
-                if (int(existing_pfw['publicPort']) == int(requested_pfw['ext_port']) and
-                        int(existing_pfw['localPort']) == int(requested_pfw['int_port']) and
-                        existing_pfw['protocol'] == requested_pfw['proto']):
-                    # full match - existing rule stays as is:
-                    # mark requested rule spec as 'new'=False, existing rule spec as 'macthed'=True
-                    requested_pfw['new'] = False
-                    existing_pfw['matched'] = True
-
-        # Scan arg_pfw_specs, find all records that have been marked 'new'=True, then copy them the pfw_delta_list
-        # marking as action='create'
-        for requested_pfw in arg_pfw_specs:
-            if requested_pfw['new']:
-                pfw_delta = dict(ext_port=requested_pfw['ext_port'],
-                                 int_port=requested_pfw['int_port'],
-                                 proto=requested_pfw['proto'],
-                                 action='create')
-                pfw_delta_list.append(pfw_delta)
-
-        # Scan existing_pfw_list, find all records that have 'matched'=False, then copy them to pfw_delta_list
-        # marking as action='delete'
-        for existing_pfw in existing_pfw_list:
-            if not existing_pfw['matched']:
-                pfw_delta = dict(ext_port=int(existing_pfw['publicPort']),
-                                 int_port=int(existing_pfw['localPort']),
-                                 proto=existing_pfw['protocol'],
-                                 action='delete')
-                pfw_delta_list.append(pfw_delta)
-
-        if not len(pfw_delta_list):
-            # nothing to do
-            self.result['failed'] = False
-            self.result['msg'] = ("vm_portforwards() no difference between current and requested port "
-                                  "forwarding rules found. No change applied to VM ID {}.").format(arg_vm_dict['id'])
-            return
-
-        # Need VDC facts to extract VDC external IP - it is needed to create new port forwarding rules
-        # Note that in a scenario when VM and VDC are created in the same task we may arrive to here
-        # when VDC is still in DEPLOYING state. Attempt to configure port forward rules in this will generate
-        # an error. So we have to check VDC status and loop for max ~60 seconds here so that the newly VDC
-        # created enters DEPLOYED state 
-        max_retries = 5
-        retry_counter = max_retries
-        while retry_counter > 0:
-            _, vdc_facts = self.vdc_find(arg_rg_id=arg_vm_dict['rgId'])
-            if vdc_facts['status'] == "DEPLOYED":
-                break
-            retry_timeout = 5 + 10 * (max_retries - retry_counter)
-            time.sleep(retry_timeout)
-            retry_counter = retry_counter - 1
-
-        if vdc_facts['status'] != "DEPLOYED":
-            # We still cannot manage port forwards due to incompatible VDC state. This is not necessarily an
-            # error that should lead to the task failure, so we register this fact in the module message and
-            # return from the method.
-            #
-            # self.result['failed'] = True
-            self.result['msg'] = ("vm_portforwards(): target VDC ID {} is still in '{}' state, "
-                                  "setting port forwarding rules is not possible.").format(arg_vm_dict['rgId'],
-                                                                                           vdc_facts['status'])
-            return
-
-        # Iterate over pfw_delta_list and first delete port forwarding rules marked for deletion,
-        # next create the rules marked for creation.
-        sorted_pfw_delta_list = sorted(pfw_delta_list, key=lambda i: i['action'], reverse=True)
-        for pfw_delta in sorted_pfw_delta_list:
-            if pfw_delta['action'] == 'delete':
-                pfw_api_params = dict(rgId=arg_vm_dict['rgId'],
-                                      publicIp=vdc_facts['externalnetworkip'],
-                                      publicPort=pfw_delta['ext_port'],
-                                      proto=pfw_delta['proto'])
-                self.decort_api_call(requests.post, pfw_api_base + 'deleteByPort', pfw_api_params)
-                # On success the above call will return here. On error it will abort execution by calling fail_json.
-            elif pfw_delta['action'] == 'create':
-                pfw_api_params = dict(rgId=arg_vm_dict['rgId'],
-                                      publicIp=vdc_facts['externalnetworkip'],
-                                      publicPort=pfw_delta['ext_port'],
-                                      machineId=arg_vm_dict['id'],
-                                      localPort=pfw_delta['int_port'],
-                                      protocol=pfw_delta['proto'])
-                self.decort_api_call(requests.post, pfw_api_base + 'create', pfw_api_params)
-                # On success the above call will return here. On error it will abort execution by calling fail_json.
-
-        self.result['failed'] = False
-        self.result['changed'] = True
-        return
-
     def compute_powerstate(self, comp_facts, target_state, force_change=True):
         """Manage Compute power state transitions or its guest OS restarts.
 
@@ -2322,9 +2171,6 @@ class DecortController(object):
 
         return ret_disk_id, ret_disk_dict
 
-    #
-    # TODO: method is not fully implemented - need ../disks/list or ../disks/search API function!
-    #
     def disk_find(self, disk_id, disk_name="", account_id=0, check_state=False):
         """Find specified Disk. 
        
@@ -2507,6 +2353,161 @@ class DecortController(object):
                           reason="Restored on user {} request by DECORT Ansible module.".format(self.decort_username),)
         self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/restore", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+
+    
+    ##############################
+    #
+    # Port Forward rules management
+    #
+    ##############################
+
+    def pfw_configure(self, comp_facts, vins_facts, new_rules=None):
+        """Manage port forwarding rules for Compute in a smart way. The method will try to match existing
+        rules against the new rules set and calculate the delta settings to apply to the corresponding 
+        virtual network function.
+
+        @param (dict) comp_facts: dictionary with Compute facts as returned by .../compute/get. It describes
+        the Compute instance for which PFW rules will be managed.
+        @param (dict) vins_facts: dictionary with ViNS facts as returned by .../vins/get. It described ViNS
+        to which PFW rules set will be applied.
+        @param (list of dicts) new_rules: new PFW rules set. If None is passed, remove all existing
+        PFW rules for the Compute.
+        """
+
+        # At the entry to this method we assume that initial validations are already passed, namely:
+        # 1) Compute instance exists
+        # 2) ViNS exists and has GW VNS in valid state
+        # 3) Compute is connected to this ViNS
+
+        #
+        #
+        # Strategy for port forwards management:
+        # 1) obtain current port forwarding rules for the target VM
+        # 2) create a delta list of port forwards (rules to add and rules to remove)
+        #   - full match between existing & requested = ignore, no update of pfw_delta
+        #   - existing rule not present in requested list => copy to pfw_delta and mark as 'delete'
+        #   - requested rule not present in the existing list => copy to pfw_delta and mark as 'create'
+        # 3) provision delta list (first delete rules marked for deletion, next add rules mark for creation)
+        #
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "pfw_configure")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("pfw_configure() in check mode: port forwards configuration requested "
+                                  "for Compute ID {} / ViNS ID {}").format(comp_facts['id'], vins_facts['id'])
+            return None
+
+        iface_ipaddr = "" # keep IP address associated with Compute's connection to this ViNS - need this for natRuleDel API
+        for iface in comp_facts['interfaces']:
+            if iface['connType'] == 'VXLAN' and iface['connId'] == vins_facts['vxlanId']:
+                iface_ipaddr = iface['ipAddress']
+                break
+        else:
+            decon.result['failed'] = True
+            decon.result['msg'] = "Compute ID {} is not connected to ViNS ID {}.".format(comp_facts['id'], vins_facts['id'])
+            return None
+
+        existing_rules = []
+        for runner in vins_facts['vnfs']['NAT']['config']['rules']:
+            if runner['vmId'] == comp_facts['id']:
+                existing_rules.append(runner)
+
+        if not len(existing_rules) and not len(new_rules):
+            self.result['failed'] = False
+            self.result['warning'] = ("pfw_configure(): both existing and new port forwarding rule lists "
+                                      "for Compute ID {} are empty - nothing to do.").format(comp_facts['id'])
+            return None
+
+        if not len(new_rules):
+            # delete all existing rules for this Compute
+            api_params = dict(vinsId=vins_facts['id'])
+            for runner in existing_rules:
+                api_params['ruleId'] = runner['id']
+                self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/natRuleDel", api_params)
+            self.result['failed'] = False
+            self.result['chnaged'] = True
+            return None
+
+        # 
+        # delta_list will be a list of dictionaries that describe _changes_ to the port forwarding rules
+        # of the Compute in hands.
+        # The dictionary has the following keys - values:
+        #   (int) publicPortStart - external port range start
+        #   (int) publicPortEnd - external port range end
+        #   (int) localPort - internal port number
+        #   (string) protocol - protocol, either 'tcp' or 'udp'
+        #   (string) action - string, either 'del' or 'add'
+        #   (int) id - the ID of existing PFW rule that should be deleted (applicable only for action='del')
+        # 
+        delta_list = []
+        # select from new_rules the rules to add - those not found in existing rules
+        for rule in new_rules:
+            rule['action'] = 'add'
+            rule_port_end = rule.get('public_port_end', rule['public_port_start'])
+            for runner in existing_rules:
+                if (runner['publicPortStart'] == rule['public_port_start'] and
+                    runner['publicPortEnd'] == rule_port_end and
+                    runner['localPort'] == rule['local_port'] and
+                    runner['protocol'] == rule['proto']):
+                    rule['action'] = 'keep'
+                    break
+            if rule['action'] == 'add':
+                delta_rule = dict(publicPortStart=rule['public_port_start'],
+                                  publicPortEnd=rule_port_end,
+                                  localPort=rule['local_port'],
+                                  protocol=rule['proto'],
+                                  action='add',
+                                  id='-1')
+                delta_list.append(delta_rule)
+
+        # select from existing_rules the rules to delete - those not found in new_rules
+        for rule in existing_rules:
+            rule['action'] = 'del'
+            for runner in new_rules:
+                runner_port_end = runner.get('public_port_end', runner['public_port_start'])
+                if (rule['publicPortStart'] == runner['public_port_start'] and
+                    rule['publicPortEnd'] == runner_port_end and
+                    rule['localPort'] == runner['local_port'] and
+                    rule['protocol'] == runner['proto']):
+                    rule['action'] = 'keep'
+                    break
+            if rule['action'] == 'del':
+                delta_list.append(rule)
+
+        if not len(delta_list):
+            # strange, but still nothing to do?
+            self.result['failed'] = False
+            self.result['warning'] = ("pfw_configure() no difference between current and new PFW rules "
+                                      "found. No change applied to Compute ID {}.").format(comp_facts['id'])
+            return
+
+        # now delta_list contains a list of enriched rule dictionaries with extra key 'action', which
+        # tells what kind of action is expected on this rule - 'add' or 'del'
+        # We first iterate to delete, then iterate again to add rules
+
+        # Iterate over pfw_delta_list and first delete port forwarding rules marked for deletion,
+        # next create the rules marked for creation.
+        api_base = "/restmachine/cloudapi/vins/"
+        for delta_rule in sorted(delta_list, key=lambda i: i['action'], reverse=True):
+            if delta_rule['action'] == 'del':
+                api_params = dict(vinsId=vins_facts['id'],
+                                  ruleId=delta_rule['id'])
+                self.decort_api_call(requests.post, api_base + 'natRuleDel', api_params)
+                # On success the above call will return here. On error it will abort execution by calling fail_json.
+            elif delta_rule['action'] == 'add':
+                api_params = dict(vinsId=vins_facts['id'],
+                                  intIp=iface_ipaddr,
+                                  intPort=delta_rule['localPort'],
+                                  extPortStart=delta_rule['publicPortStart'],
+                                  extPortEnd=delta_rule['publicPortEnd'],
+                                  proto=delta_rule['protocol'])
+                self.decort_api_call(requests.post, api_base + 'natRuleAdd', api_params)
+                # On success the above call will return here. On error it will abort execution by calling fail_json.
+
         self.result['failed'] = False
         self.result['changed'] = True
         return
