@@ -32,7 +32,7 @@ requirements:
      - PyJWT module
      - requests module
      - decort_utils utility library (module)
-     - DECORT cloud platform version 3.4.0 or higher.
+     - DECORT cloud platform version 3.4.1 or higher.
 notes:
      - Environment variables can be used to pass selected parameters to the module, see details below.
      - Specified Oauth2 provider must be trusted by the DECORT cloud controller on which JWT will be used.
@@ -275,22 +275,24 @@ def main():
     decon = DecortController(amodule)
 
     # we need account ID to locate OS images - find the account by the specified name and get its ID
-    account_id, _ = decon.account_find(amodule.params['account_name'])
-    if account_id == 0:
+    validated_account_id, _ = decon.account_find(amodule.params['account_name'])
+    if validated_account_id == 0:
         # we failed either to find or access the specified account - fail the module
         decon.result['failed'] = True
         decon.result['changed'] = False
         decon.result['msg'] = ("Cannot find account '{}'").format(amodule.params['account_name'])
         amodule.fail_json(**decon.result)
 
-    osimage_facts = decon.image_find(amodule.params['image_name'], 0, account_id, 
-                                     amodule.params['sep_id'], amodule.params['pool'])
+    image_id, image_facts = decon.image_find(image_id=0, image_name=amodule.params['image_name'], 
+                                             account_id=validated_account_id, rg_id=0,
+                                             sepid=amodule.params['sep_id'],
+                                             pool=amodule.params['pool'])
     if decon.result['failed'] == True:
         # we failed to find the specified image - fail the module
         decon.result['changed'] = False
         amodule.fail_json(**decon.result)
 
-    decon.result['facts'] = decort_osimage_package_facts(osimage_facts, amodule.check_mode)
+    decon.result['facts'] = decort_osimage_package_facts(image_facts, amodule.check_mode)
     decon.result['changed'] = False # decort_osimage is a read-only module - make sure the 'changed' flag is set to False
     amodule.exit_json(**decon.result)
 

@@ -29,7 +29,7 @@ requirements:
      - PyJWT module
      - requests module
      - decort_utils utility library (module)
-     - DECORT cloud platform version 3.4.0 or higher
+     - DECORT cloud platform version 3.4.1 or higher
 notes:
      - Environment variables can be used to pass selected parameters to the module, see details below.
      - Specified Oauth2 provider must be trusted by the DECORT cloud controller on which JWT will be used.
@@ -38,8 +38,8 @@ notes:
 options:
     account_id:
         description:
-        - ID of the account under which this ViNS will be created (for new ViNS) or is located (for already
-          existing ViNS). This is the alternative to I(account_name) option.
+        - 'ID of the account under which this ViNS will be created (for new ViNS) or is located (for already
+          existing ViNS). This is the alternative to I(account_name) option.'
         - If both I(account_id) and I(account_name) specified, then I(account_name) is ignored.
         required: no
     account_name:
@@ -246,10 +246,11 @@ from ansible.module_utils.decort_utils import *
 
 
 def decort_vins_package_facts(arg_vins_facts, arg_check_mode=False):
-    """Package a dictionary of RG facts according to the decort_vins module specification. This dictionary will
-    be returned to the upstream Ansible engine at the completion of the module run.
+    """Package a dictionary of ViNS facts according to the decort_vins module specification. 
+    This dictionary will be returned to the upstream Ansible engine at the completion of 
+    the module run.
 
-    @param arg_vins_facts: dictionary with RG facts as returned by API call to .../rg/get
+    @param arg_vins_facts: dictionary with viNS facts as returned by API call to .../vins/get
     @param arg_check_mode: boolean that tells if this Ansible module is run in check mode
     """
 
@@ -325,7 +326,6 @@ def decort_vins_parameters():
                       required=False,
                       fallback=(env_fallback, ['DECORT_PASSWORD']),
                       no_log=True),
-        quotas=dict(type='dict', required=False),
         state=dict(type='str',
                    default='present',
                    choices=['absent', 'disabled', 'enabled', 'present']),
@@ -376,7 +376,7 @@ def main():
 
     if amodule.params['vins_id']:
         # expect existing ViNS with the specified ID
-        # This call to rg_vins will abort the module if no ViNS with such ID is present
+        # This call to vins_find will abort the module if no ViNS with such ID is present
         vins_id, vins_facts = decon.vins_find(amodule.params['vins_id'])
         if not vins_id:
             decon.result['failed'] = True
@@ -437,7 +437,7 @@ def main():
         decon.result['failed'] = True
         if amodule.params['account_id'] == 0 and amodule.params['account_name'] == "":
             decon.result['msg'] = "Cannot find ViNS by name when account name is empty and account ID is 0."
-        if amodule.params['rg_name'] != "":
+        if amodule.params['rg_name'] == "":
             # rg_name without account specified
             decon.result['msg'] = "Cannot find ViNS by name when RG name is empty and RG ID is 0."
         decon.fail_json(**decon.result)
@@ -555,9 +555,6 @@ def main():
             decon.result['msg'] = ("Nothing to do as target state 'absent' was requested for "
                                    "non-existent ViNS name '{}'").format(amodule.params['vins_name'])
         elif amodule.params['state'] in ('present', 'enabled'):
-            # Target RG does not exist yet - create it and store the returned ID in rg_id variable for later use
-            # To create RG we need account name (or account ID) and RG name - check
-            # that these parameters are present and proceed.
             decon.check_amodule_argument('vins_name')
             # as we already have account ID and RG ID we can create ViNS and get vins_id on success
             vins_id = decon.vins_provision(amodule.params['vins_name'],
