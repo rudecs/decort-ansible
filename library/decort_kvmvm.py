@@ -105,6 +105,11 @@ options:
           it accordingly. Note that resize operation on a running VM may generate errors as not all OS images support
           hot resize feature.'
         required: no
+    data_disks:
+        description:
+        - Optional list of integer IDs of the pre-existing disks that will be attached to this VM.
+        - These are additional disks (aka data disks) besides boot disk, which is created and attached automatically.
+        required: no
     id:
         description:
         - ID of the KVM VM to manage.
@@ -542,7 +547,7 @@ class decort_kvmvm(DecortController):
 
         # if we get through here, all parameters required to create new Compute instance should be at hand
 
-        self.comp_id = self.compute_provision(rg_id=self.rg_id, 
+        self.comp_id = self.kvmvm_provision(rg_id=self.rg_id, 
                                     comp_name=self.amodule.params['name'], arch=self.amodule.params['arch'],
                                     cpu=self.amodule.params['cpu'], ram=self.amodule.params['ram'],
                                     boot_disk=validated_bdisk_size,

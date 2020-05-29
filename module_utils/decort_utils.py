@@ -763,13 +763,15 @@ class DecortController(object):
 
         api_params = dict(rgId=rg_id,
                           name=comp_name,
-                          description=annotation,
-                          vcpus=cpu, memory=ram,
+                          cpu=cpu, ram=ram,
                           imageId=image_id,
-                          disksize=boot_disk,
-                          start_machine=start_on_create)  # start_machine parameter requires DECORT API ver 3.3.1 or higher
+                          bootDisk=boot_disk,
+                          start=start_on_create)  # start_machine parameter requires DECORT API ver 3.3.1 or higher
         if userdata:
             api_params['userdata'] = json.dumps(userdata)  # we need to pass a string object as "userdata" 
+
+        if annotation:
+            api_params['decs'] = annotation
 
         api_resp = self.decort_api_call(requests.post, api_url, api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
@@ -1149,7 +1151,7 @@ class DecortController(object):
                     self.result['failed'] = True
                     self.result['msg'] = ("Failed to find RG ID {}, and account ID is zero.").format(rg_id)
                     return 0, None
-            validated_acc_id = rg_facts['accountId']
+                validated_acc_id = rg_facts['accountId']
 
             api_params = dict(accountId=validated_acc_id)
             api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/images/list", api_params)
@@ -2212,17 +2214,10 @@ class DecortController(object):
                 return 0, None
         elif disk_name != "":
             if account_id > 0:
-                # TODO: in the absense of disks/list or disks/search API call it is not possible to 
-                # fully implement this method
-                #
-                self.result['failed'] = True
-                self.result['msg'] = "disk_find(): looking up disk by name and account ID not implemented."
-                self.amodule.fail_json(**self.result)
-                #  
                 api_params = dict(accountId=account_id,
                                   name=disk_name,
                                   showAll=False) # we do not want to see disks in DESTROYED, PURGED or invalid states 
-                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/search", api_params)
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/list", api_params)
                 # the above call may return more than one matching disk
                 disks_list = json.loads(api_resp.content.decode('utf8'))
                 for runner in disks_list:
@@ -2286,6 +2281,9 @@ class DecortController(object):
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/create", api_params)
         if api_resp.status_code == 200:
             ret_disk_id = json.loads(api_resp.content.decode('utf8'))
+
+        self.result['failed'] = False
+        self.result['changed'] = True
 
         return ret_disk_id
 

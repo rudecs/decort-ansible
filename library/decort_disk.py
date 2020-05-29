@@ -78,20 +78,20 @@ options:
         - URL of the DECORT controller that will be contacted to manage the RG according to the specification.
         - 'This parameter is always required regardless of the specified I(authenticator) type.'
         required: yes
-    disk_id:
+    id:
         description:
-        - `ID of the disk to manage. If I(disk_id) is specified it is assumed, that this disk already
-          exists. In other words, you cannot create new disk by specifying its ID, use I(disk_name)
+        - `ID of the disk to manage. If I(id) is specified it is assumed, that this disk already
+          exists. In other words, you cannot create new disk by specifying its ID, use I(name)
           when creating new disk.`
-        - `If non-zero I(disk_id) is specified, then I(disk_name), I(account_id) and I(account_name) 
+        - `If non-zero I(id) is specified, then I(name), I(account_id) and I(account_name) 
           are ignored.`
         default: 0
         required: no
-    disk_name:
+    name:
         description:
         - `Name of the disk to manage. To manage disk by name you also need to specify either
           I(account_id) or I(account_name).`
-        - If non-zero I(disk_id) is specified, I(disk_name) is ignored.
+        - If non-zero I(id) is specified, I(name) is ignored.
         - `Note that the platform does not enforce uniqueness of disk names, so if more than one
           disk with this name exists under the specified account, module will return the first
           occurence.`
@@ -206,7 +206,7 @@ EXAMPLES = '''
       app_id: "{{ MY_APP_ID }}"
       app_secret: "{{ MY_APP_SECRET }}"
       controller_url: "https://cloud.digitalenergy.online"
-      disk_name: "MyDataDisk01"
+      name: "MyDataDisk01"
       sep_id: 1
       pool: "default"
       size: 50
@@ -288,7 +288,7 @@ def decort_disk_parameters():
     return dict(
         account_id=dict(type='int', required=False, default=0),
         account_name=dict(type='str', required=False, default=''),
-        annotation=dict(type='str', required=False, default=''),
+        annotation=dict(type='str', required=False, default='Disk by decort_disk'),
         app_id=dict(type='str',
                     required=False,
                     fallback=(env_fallback, ['DECORT_APP_ID'])),
@@ -300,8 +300,8 @@ def decort_disk_parameters():
                            required=True,
                            choices=['legacy', 'oauth2', 'jwt']),
         controller_url=dict(type='str', required=True),
-        disk_id=dict(type='int', required=False, default=0),
-        disk_name=dict(type='str', required=False),
+        id=dict(type='int', required=False, default=0),
+        name=dict(type='str', required=False),
         force_detach=dict(type='bool', required=False, default=False),
         jwt=dict(type='str',
                  required=False,
@@ -352,18 +352,18 @@ def main():
     validated_acc_id = 0
     acc_facts = None # will hold Account facts
 
-    if amodule.params['disk_id']:
+    if amodule.params['id']:
         # expect existing Disk with the specified ID
         # This call to disk_find will abort the module if no Disk with such ID is present
-        disk_id, disk_facts = decon.disk_find(amodule.params['disk_id'])
+        disk_id, disk_facts = decon.disk_find(amodule.params['id'])
         if not disk_id:
             decon.result['failed'] = True
-            decon.result['msg'] = "Specified Disk ID {} not found.".format(amodule.params['disk_id'])
+            decon.result['msg'] = "Specified Disk ID {} not found.".format(amodule.params['id'])
             amodule.fail_json(**decon.result)
         validated_acc_id =disk_facts['accountId']
-    elif (amodule.params['account_id'] or amodule.params['account_name'] != "") and amodule.params['disk_name'] != "":
+    elif (amodule.params['account_id'] or amodule.params['account_name'] != "") and amodule.params['name'] != "":
         # Make sure disk name is specified, if not - fail the module
-        if amodule.params['disk_name'] == "":
+        if amodule.params['name'] == "":
             decon.result['failed'] = True
             decon.result['msg'] = ("Cannot manage disk if both ID is 0 and disk name is empty.")
             amodule.fail_json(**decon.result)
@@ -375,7 +375,7 @@ def main():
                                     "or non-existent account specified.")
             amodule.fail_json(**decon.result)
         # This call to disk_find may return disk_id=0 if no Disk with this name found in 
-        disk_id, disk_facts = decon.disk_find(disk_id=0, disk_name=amodule.params['disk_name'],
+        disk_id, disk_facts = decon.disk_find(disk_id=0, disk_name=amodule.params['name'],
                                                 account_id=validated_acc_id,
                                                 check_state=False)
     else: 
@@ -384,7 +384,7 @@ def main():
         decon.result['failed'] = True
         if amodule.params['account_id'] == 0 and amodule.params['account_name'] == "":
             decon.result['msg'] = "Cannot find Disk by name when account name is empty and account ID is 0."
-        if amodule.params['disk_name'] == "":
+        if amodule.params['name'] == "":
             decon.result['msg'] = "Cannot find Disk by empty name."
         amodule.fail_json(**decon.result)
 
@@ -400,6 +400,8 @@ def main():
     # 
 
     disk_should_exist = False
+    target_sep_id = 0
+    target_pool = "default"
     
     if disk_id:
         disk_should_exist = True
@@ -451,8 +453,8 @@ def main():
                 elif decon.check_amodule_argument('place_with', False) and amodule.params['place_with'] > 0:
                     # request to place this disk on the same SEP as the specified OS image
                     # validate specified OS image and assign SEP ID accordingly
-                    image_id, image_facts = decon.image_find()
-                    pass
+                    image_id, image_facts = decon.image_find(amodule.params['place_with'], "", 0)
+                    target_sep_id = image_facts['sepid']
                 else:
                     # no new SEP ID is explicitly specified, and no place_with option - use sep_id from the disk_facts
                     target_sep_id = disk_facts['sepid']
@@ -480,14 +482,29 @@ def main():
             decon.result['failed'] = False
             decon.result['changed'] = False
             decon.result['msg'] = ("Nothing to do as target state 'absent' was requested for "
-                                   "non-existent Disk name '{}'").format(amodule.params['disk_name'])
+                                   "non-existent Disk name '{}'").format(amodule.params['name'])
         elif amodule.params['state'] == 'present':
-            decon.check_amodule_argument('disk_name')
-            # as we already have account ID, we can create Disk and get disk_id on success
-            #
-            # TODO: implement SEP ID selction logic
-            #
-            disk_id = decon.disk_provision(disk_name=disk_facts['name'], # as this disk was found, its name is in the facts
+            decon.check_amodule_argument('name') # if disk name not specified, fail the module 
+            decon.check_amodule_argument('size') # if disk size not specified, fail the module
+
+            # as we already have account ID, we can create Disk and get disk id on success
+            if decon.check_amodule_argument('sep_id', False) and amodule.params['sep_id'] > 0:
+                # non-zero sep_id is explicitly passed in module arguments
+                target_sep_id = amodule.params['sep_id']
+            elif decon.check_amodule_argument('place_with', False) and amodule.params['place_with'] > 0:
+                # request to place this disk on the same SEP as the specified OS image
+                # validate specified OS image and assign SEP ID accordingly
+                image_id, image_facts = decon.image_find(amodule.params['place_with'], "", 0)
+                target_sep_id = image_facts['sepid']
+            else:
+                # no SEP ID is explicitly specified, and no place_with option - we do not know where
+                # to place the new disk - fail the module
+                decon.result['failed'] = True
+                decon.result['msg'] = ("Cannot create new Disk name '{}': no SEP ID specified and "
+                                       "no 'place_with' option used.").format(amodule.params['name'])
+                amodule.fail_json(**decon.result)
+            
+            disk_id = decon.disk_provision(disk_name=amodule.params['name'],
                                             size=amodule.params['size'],
                                             account_id=validated_acc_id, 
                                             sep_id=target_sep_id,
@@ -500,7 +517,7 @@ def main():
             decon.result['changed'] = False
             decon.result['msg'] = ("Invalid target state '{}' requested for non-existent "
                                    "Disk name '{}'").format(amodule.params['state'],
-                                                            amodule.params['disk_name'])
+                                                            amodule.params['name'])
     
     #
     # conditional switch end - complete module run
