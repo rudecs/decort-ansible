@@ -556,6 +556,9 @@ class decort_kvmvm(DecortController):
                                     userdata=cloud_init_params,
                                     start_on_create=start_compute)
         self.comp_should_exist = True
+        
+        # Need to re-read comp_info after VM was provisioned
+        _, self.comp_info, _ = self.compute_find(self.comp_id)
 
         # 
         # Compute was created
@@ -595,6 +598,8 @@ class decort_kvmvm(DecortController):
         """Compute modify handler for KVM VM management by decort_kvmvm module.
         This method is a convenience wrapper that calls individual Compute modification functions from
         DECORT utility library (module).
+
+        Note that it does not modify power state of KVM VM.
         """
         self.compute_networks(self.comp_info, self.amodule.params['networks'])
         self.compute_bootdisk_size(self.comp_info, self.amodule.params['boot_disk'])
@@ -674,7 +679,7 @@ class decort_kvmvm(DecortController):
         for ddisk in self.comp_info['disks']:
             if ddisk['type'] == 'B':
                 # if it is a boot disk - store its size
-                ret_dict['disk_size'] = ddisk['maxSize']
+                ret_dict['disk_size'] = ddisk['sizeMax']
             elif ddisk['type'] == 'D':
                 # if it is a data disk - append its ID to the list of data disks IDs
                 ret_dict['data_disks'].append(ddisk['id'])
@@ -804,27 +809,15 @@ def main():
             pass
 
     if subj.comp_id:
-        if subj.comp_info['status'] in ("MIGRATING", "DESTROYING", "ERROR"):
-            # nothing to do for an existing Compute in the listed states regardless of the requested state
-            subj.nop()
-        elif subj.comp_info['status'] == "RUNNING":
+        if subj.comp_info['status'] in ("DISABLED", "MIGRATING", "DELETING", "DESTROYING", "ERROR", "REDEPLOYING"):
+            # cannot do anything on the existing Compute in the listed states
+            subj.error() # was subj.nop()
+        elif subj.comp_info['status'] == "ENABLED":
             if amodule.params['state'] == 'absent':
                 subj.destroy()
-            elif amodule.params['state'] in ('present', 'poweredon'):
-                # check port forwards / check size / nop
-                subj.modify()
-            elif amodule.params['state'] in ('paused', 'poweredoff', 'halted'):
-                # pause or power off the vm, then check port forwards / check size
+            elif amodule.params['state'] in ('present', 'paused', 'poweredon', 'poweredoff', 'halted'):
                 subj.compute_powerstate(subj.comp_info, amodule.params['state'])
                 subj.modify(arg_wait_cycles=7)
-        elif subj.comp_info['status'] in ("PAUSED", "HALTED"):
-            if amodule.params['state'] == 'absent':
-                subj.destroy()
-            elif amodule.params['state'] in ('present', 'paused', 'poweredoff', 'halted'):
-                subj.modify()
-            elif amodule.params['state'] == 'poweredon':
-                subj.modify()
-                subj.compute_powerstate(subj.comp_info, amodule.params['state'])
         elif subj.comp_info['status'] == "DELETED":
             if amodule.params['state'] in ('present', 'poweredon'):
                 # TODO - check if restore API returns VM ID (similarly to VM create API)
@@ -839,9 +832,7 @@ def main():
                 subj.error()
         elif subj.comp_info['status'] == "DESTROYED":
             if amodule.params['state'] in ('present', 'poweredon', 'poweredoff', 'halted'):
-                subj.create()
-                # TODO: Network setup?
-                # TODO: Data disks setup?
+                subj.create() # this call will also handle data disk & network connection
             elif amodule.params['state'] == 'absent':
                 subj.nop()
                 subj.comp_should_exist = False
@@ -853,9 +844,7 @@ def main():
         if amodule.params['state'] == 'absent':
             subj.nop()
         elif amodule.params['state'] in ('present', 'poweredon', 'poweredoff', 'halted'):
-            subj.create()
-            # TODO: Network setup?
-            # TODO: Data disks setup?
+            subj.create() # this call will also handle data disk & network connection
         elif amodule.params['state'] == 'paused':
             subj.error()
 
@@ -872,8 +861,8 @@ def main():
             # TODO: check if we really need to get RG facts here in view of DNF implementation
             # we need to extract RG facts regardless of 'changed' flag, as it is our source of information on
             # the VDC external IP address
-            _, rg_facts = subj.rg_find(arg_rg_id=subj.rg_id)
-        subj.result['facts'] = subj.package_facts(rg_facts, amodule.check_mode)
+            _, rg_facts = subj.rg_find(arg_account_id=0, arg_rg_id=subj.rg_id)
+        subj.result['facts'] = subj.package_facts(amodule.check_mode)
         amodule.exit_json(**subj.result)
 
 

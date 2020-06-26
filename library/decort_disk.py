@@ -361,7 +361,7 @@ def main():
             decon.result['msg'] = "Specified Disk ID {} not found.".format(amodule.params['id'])
             amodule.fail_json(**decon.result)
         validated_acc_id =disk_facts['accountId']
-    elif (amodule.params['account_id'] or amodule.params['account_name'] != "") and amodule.params['name'] != "":
+    elif amodule.params['account_id'] > 0 or amodule.params['account_name'] != "":
         # Make sure disk name is specified, if not - fail the module
         if amodule.params['name'] == "":
             decon.result['failed'] = True

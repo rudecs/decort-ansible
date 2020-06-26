@@ -661,7 +661,8 @@ class DecortController(object):
         # @param wait_for_change: integer number that tells how many 5 seconds intervals to wait for the power state
         # change before returning from this method.
 
-        NOP_STATES_FOR_POWER_CHANGE = ["MIGRATING", "DELETED", "DESTROYING", "DESTROYED", "ERROR"]
+        INVALID_MODEL_STATES = ["MIGRATING", "DELETED", "DESTROYING", "DESTROYED", "ERROR", "REDEPLOYING"]
+        INVALID_TECH_STATES = ["STOPPING", "STARTING", "PAUSING"]
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "compute_powerstate")
 
@@ -671,48 +672,51 @@ class DecortController(object):
                                   "to '{}' was requested.").format(comp_facts['id'], target_state)
             return
 
-        if comp_facts['status'] in NOP_STATES_FOR_POWER_CHANGE:
+        if comp_facts['status'] in INVALID_MODEL_STATES:
             self.result['failed'] = False
             self.result['msg'] = ("compute_powerstate(): no power state change possible for Compute ID {} "
                                   "in its current state '{}'.").format(comp_facts['id'], comp_facts['status'])
+            return
+
+        if comp_facts['techStatus'] in INVALID_TECH_STATES:
+            self.result['failed'] = False
+            self.result['msg'] = ("compute_powerstate(): no power state change possible for Compute ID {} "
+                                  "in its current techState '{}'.").format(comp_facts['id'], comp_facts['techStatus'])
             return
 
         powerstate_api = ""  # this string will also be used as a flag to indicate that API call is necessary
         api_params = dict(compId=comp_facts['id'])
         expected_state = ""
 
-        if comp_facts['status'] == "RUNNING":
+        if comp_facts['techStatus'] == "STARTED":
             if target_state == 'paused':
                 powerstate_api = "/restmachine/cloudapi/compute/pause"
-                expected_state = "PAUSED"
+                expected_techState = "PAUSED"
             elif target_state in ('poweredoff', 'halted', 'stopped'):
                 powerstate_api = "/restmachine/cloudapi/compute/stop"
                 params['force'] = force_change
-                expected_state = "HALTED"
+                expected_techState = "STOPPED"
             elif target_state == 'restarted':
                 powerstate_api = "/restmachine/cloudapi/compute/reboot"
-                expected_state = "RUNNING"
-        elif comp_facts['status'] == "PAUSED" and target_state in ('poweredon', 'restarted', 'started'):
+                expected_techState = "STARTED"
+        elif comp_facts['techStatus'] == "PAUSED" and target_state in ('poweredon', 'restarted', 'started'):
             powerstate_api = "/restmachine/cloudapi/compute/resume"
-            expected_state = "RUNNING"
-        elif comp_facts['status'] == "HALTED" and target_state in ('poweredon', 'restarted', 'started'):
+            expected_techState = "STARTED"
+        elif comp_facts['techStatus'] == "STOPPED" and target_state in ('poweredon', 'restarted', 'started'):
             powerstate_api = "/restmachine/cloudapi/compute/start"
-            expected_state = "RUNNING"
-        else:
-            # This Compute instance seems to be in the desired power state already - do not call API
-            pass
+            expected_techState = "STARTED"
 
         if powerstate_api != "":
             self.decort_api_call(requests.post, powerstate_api, api_params)
             # On success the above call will return here. On error it will abort execution by calling fail_json.
             self.result['failed'] = False
             self.result['changed'] = True
-            comp_facts['status'] = expected_state
+            comp_facts['techStatus'] = expected_techState
         else:
             self.result['failed'] = False
             self.result['warning'] = ("compute_powerstate(): no power state change required for Compute ID {} from its "
                                       "current state '{}' to desired state '{}'.").format(comp_facts['id'],
-                                                                                      comp_facts['status'],
+                                                                                      comp_facts['techStatus'],
                                                                                       target_state)
         return
 
@@ -766,7 +770,8 @@ class DecortController(object):
                           cpu=cpu, ram=ram,
                           imageId=image_id,
                           bootDisk=boot_disk,
-                          start=start_on_create)  # start_machine parameter requires DECORT API ver 3.3.1 or higher
+                          start=start_on_create,  # start_machine parameter requires DECORT API ver 3.3.1 or higher
+                          netType="NONE") # we create VM without any network connections
         if userdata:
             api_params['userdata'] = json.dumps(userdata)  # we need to pass a string object as "userdata" 
 
@@ -816,7 +821,7 @@ class DecortController(object):
                                   "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
             return
 
-        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/externalnetworks/list", api_params)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/externalnetwork/list", api_params)
         extnet_list = json.loads(api_resp.content.decode('utf8')) # list of dicts: "name" holds "NET_ADDR/NETMASK", "id" is ID
         if not len(vins_list):
             self.result['failed'] = True
@@ -2217,7 +2222,7 @@ class DecortController(object):
                 api_params = dict(accountId=account_id,
                                   name=disk_name,
                                   showAll=False) # we do not want to see disks in DESTROYED, PURGED or invalid states 
-                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/list", api_params)
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/search", api_params)
                 # the above call may return more than one matching disk
                 disks_list = json.loads(api_resp.content.decode('utf8'))
                 for runner in disks_list:
