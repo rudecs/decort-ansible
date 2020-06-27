@@ -685,7 +685,7 @@ class DecortController(object):
             return
 
         powerstate_api = ""  # this string will also be used as a flag to indicate that API call is necessary
-        api_params = dict(compId=comp_facts['id'])
+        api_params = dict(computeId=comp_facts['id'])
         expected_state = ""
 
         if comp_facts['techStatus'] == "STARTED":
@@ -694,7 +694,7 @@ class DecortController(object):
                 expected_techState = "PAUSED"
             elif target_state in ('poweredoff', 'halted', 'stopped'):
                 powerstate_api = "/restmachine/cloudapi/compute/stop"
-                params['force'] = force_change
+                api_params['force'] = force_change
                 expected_techState = "STOPPED"
             elif target_state == 'restarted':
                 powerstate_api = "/restmachine/cloudapi/compute/reboot"

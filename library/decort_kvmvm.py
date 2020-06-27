@@ -628,6 +628,7 @@ class decort_kvmvm(DecortController):
                     disk_size=0,
                     data_disks=[],  # IDs of attached data disks; this list can be emty
                     state="CHECK_MODE",
+                    tech_status="",
                     account_id=0,
                     rg_id=0,
                     username="",
@@ -649,6 +650,7 @@ class decort_kvmvm(DecortController):
         ret_dict['name'] = self.comp_info['name']
         ret_dict['arch'] = self.comp_info['arch']
         ret_dict['state'] = self.comp_info['status']
+        ret_dict['tech_status'] = self.comp_info['techStatus']
         ret_dict['account_id'] = self.comp_info['accountId']
         ret_dict['rg_id'] = self.comp_info['rgId']
         # if the VM is an imported VM, then the 'accounts' list may be empty,
@@ -792,9 +794,9 @@ def main():
         if subj.comp_id:
             # Compute is found - package facts and report success to Ansible
             subj.result['failed'] = False
-            subj.comp_info = subj.compute_find(comp_id=subj.comp_id)
-            _, rg_facts = subj.rg_find(rg_id=subj.rg_id)
-            subj.result['facts'] = subj.package_facts(rg_facts, amodule.check_mode)
+            # _, subj.comp_info, _ = subj.compute_find(comp_id=subj.comp_id)
+            # _, rg_facts = subj.rg_find(arg_account_id=0, arg_rg_id=subj.rg_id)
+            subj.result['facts'] = subj.package_facts(amodule.check_mode)
             amodule.exit_json(**subj.result)
             # we exit the module at this point
         else:
