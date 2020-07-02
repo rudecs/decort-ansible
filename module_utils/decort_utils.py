@@ -464,12 +464,12 @@ class DecortController(object):
                 break
         return
 
-    def compute_data_disks(self, comp_dict, data_disks):
+    def compute_data_disks(self, comp_dict, new_data_disks):
         """Manage attachment of data disks to the Compute instance.
 
         @param (dict) comp_dict: dictionary with Compute facts, that identifies the Compute instance 
         to manage data disks for.
-        @param (list of int) data_disks: list of interger IDs for the disks that must be attached to 
+        @param (list of int) new_data_disks: list of integer IDs for the disks that must be attached to 
         this Compute instance. If some disk IDs appear in this list, but are not present in comp_dict, 
         these disks will be attached. Vice versa, if some disks appear in comp_dict but are not present
         in data_disks, such disks will be detached.
@@ -496,19 +496,30 @@ class DecortController(object):
         detach_list = []
         attach_list = []
 
+        # 'data_disks' argument for decort_kvmvm module expects list of integer disk IDs.
+        # However, if the value for disk ID comes via Jinja templating like this:
+        #   data_disks:
+        #      - "{{ my_disk.facts.id }}"  <= will come as string, which is WRONG!!!
+        #      - 4571                      <= no Jinja templae, will come as int - OK
+        #
+        # then all values when entering this method will be of type string. We need to 
+        # explicitly cast int type on all of them.
+        for repair in new_data_disks:
+            repair = int(repair)
+
         for disk in comp_dict['disks']:
             if disk['type'] == 'B':
                 bdisk_id = disk['id']
-                if bdisk_id in data_disks:
+                if bdisk_id in new_data_disks:
                     # If boot disk ID is listed in data_disks - remove it
-                    data_disks.remove(bdisk_id)
+                    new_data_disks.remove(bdisk_id)
             elif disk['type'] == 'D':
                 # build manipulation sets for 'D' type disks only
                 current_list.append(disk['id'])
-                if disk['id'] not in data_disks:
+                if disk['id'] not in new_data_disks:
                     detach_list.append(disk['id'])
 
-        attach_list = [ did for did in data_disks if did not in current_list ]
+        attach_list = [ did for did in new_data_disks if did not in current_list ]
 
         for did in detach_list:
             api_params = dict(computeId = comp_dict['id'], diskId=did)
@@ -812,13 +823,27 @@ class DecortController(object):
                                   "ID {} was requested.").format(comp_dict['id'])
             return
 
+        # 'networks' dictionary for decort_kvmvm module has 'id' parameter, which is expected
+        # to be interger.
+        # However, if the value for 'id' comes via Jinja templating like this:
+        #   networks:
+        #      - type: VINS                    <= will come as string, which is OK.
+        #        id: "{{ my_vins.facts.id }}"  <= will come as string, which is WRONG!!!
+        #      - type: VINS                    <= will come as string, which is OK
+        #        id: 37                        <= no Jinja templae, will come as int - OK
+        #
+        # then all values (including those for 'id' key) when entering this method will be of 
+        # type string. We need to explicitly cast int type on all of them.
+        for repair in new_networks:
+            repair['id'] = int(repair['id'])
+
         api_params = dict(accountId = comp_dict['accountId'])
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/search", api_params)
         vins_list = json.loads(api_resp.content.decode('utf8'))
         if not len(vins_list):
             self.result['failed'] = True
             self.result['msg'] = ("compute_networks() cannot obtain VINS list for Account ID {}, "
-                                  "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
+                                "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
             return
 
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/externalnetwork/list", api_params)
@@ -826,9 +851,10 @@ class DecortController(object):
         if not len(vins_list):
             self.result['failed'] = True
             self.result['msg'] = ("compute_networks() cannot obtain External networks list for Account ID {}, "
-                                  "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
+                                "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
             return
 
+        # Prepare the lists of network interfaces for the compute instance:
         vins_iface_list = [] # will contain dict(id=<int>, ipAddress=<str>, mac=<str>) for ifaces connected to ViNS(es)
         enet_iface_list = [] # will contain dict(id=<int>, ipAddress=<str>, mac=<str>) for ifaces connected to Ext net(s)
         for iface in comp_dict['interfaces']:
@@ -836,8 +862,8 @@ class DecortController(object):
                 for vrunner in vins_list:
                     if vrunner['vxlanId'] == iface['connId']:
                         iface_data = dict(id=vrunner['id'],
-                                          ipAddress=iface['ipAddress'],
-                                          mac=iface['mac'])
+                                        ipAddress=iface['ipAddress'],
+                                        mac=iface['mac'])
                         vins_iface_list.append(iface_data)
             elif iface['connType'] == 'VLAN':
                 ip_addr = netaddr.IPAddress(iface['ipAddress'])
@@ -851,51 +877,56 @@ class DecortController(object):
                         continue
                     else:
                         iface_data = dict(id=erunner['id'],
-                                          ipAddress=iface['ipAddress'],
-                                          mac=iface['mac'])
+                                        ipAddress=iface['ipAddress'],
+                                        mac=iface['mac'])
                         enet_iface_list.append(iface_data)
 
         vins_id_list = [ rec['id'] for rec in vins_iface_list ]
+
         enet_id_list = [ rec['id'] for rec in enet_iface_list ]
 
         # Build attach list by looking for ViNS/Ext net IDs that appear in new_networks, but do not appear in current lists
-        attach_list = [] # attach list holds both ViNS and Ext Net attachment specs, as these do not differ from API perspective
+        attach_list = [] # attach list holds both ViNS and Ext Net attachment specs, as API handles them the same way
         for netrunner in new_networks:
-            if netrunner['type'] == 'VINS' and netrunner['id'] not in vins_id_list:
+            if netrunner['type'] == 'VINS' and ( netrunner['id'] not in vins_id_list ):
                 net2attach = dict(computeId=comp_dict['id'],
-                                   netType='VINS',
-                                   netId=netrunner['id'],
-                                   ipAddr=netrunner.get('ip_addr', ""))
+                                netType='VINS',
+                                netId=netrunner['id'],
+                                ipAddr=netrunner.get('ip_addr', ""))
                 attach_list.append(net2attach)
-            elif netrunner['type'] == 'EXTNET' and netrunner['id'] not in enet_id_list:
+            elif netrunner['type'] == 'EXTNET' and ( netrunner['id'] not in enet_id_list ):
                 net2attach = dict(computeId=comp_dict['id'],
-                                   netType='EXTNET',
-                                   netId=netrunner['id'],
-                                   ipAddr=netrunner.get('ip_addr', ""))
+                                netType='EXTNET',
+                                netId=netrunner['id'],
+                                ipAddr=netrunner.get('ip_addr', ""))
                 attach_list.append(net2attach)
+        
+        # detach is meaningful only if compute's interfaces list was not empty
+        if vins_id_list or enet_id_list:
+            # Build detach list by looking for ViNS/Ext net IDs that appear in current lists, but do not appear in new_networks
+            detach_list = [] # detach list holds both ViNS and Ext Net detachment specs, as API handles them the same way
 
-        # Build detach list by looking for ViNS/Ext net IDs that appear in current lists, but do not appear in new_networks
-        detach_list = [] # detach list holds both ViNS and Ext Net detachment specs, as these do not differ from API perspective
-        target_list = [ rec['id'] for rec in new_networks if rec['type'] == 'VINS' ]
-        for netrunner in vins_iface_list:
-            if netrunner['id'] not in target_list:
-                net2detach = dict(computeId=comp_dict['id'],
-                                   ipAddr=netrunner['ipAddress'],
-                                   mac=netrunner['mac'])
-                detach_list.append(net2detach)
+            target_list = [ rec['id'] for rec in new_networks if rec['type'] == 'VINS' ]
 
-        target_list = [ rec['id'] for rec in new_networks if rec['type'] == 'EXTNET' ]
-        for netrunner in enet_iface_list:
-            if netrunner['id'] not in target_list:
-                net2detach = dict(computeId=comp_dict['id'],
-                                   ipAddr=netrunner['ipAddress'],
-                                   mac=netrunner['mac'])
-                detach_list.append(net2detach)
-       
+            for netrunner in vins_iface_list:
+                if netrunner['id'] not in target_list:
+                    net2detach = dict(computeId=comp_dict['id'],
+                                    ipAddr=netrunner['ipAddress'],
+                                    mac=netrunner['mac'])
+                    detach_list.append(net2detach)
 
-        for api_params in detach_list:
-            self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/netDetach", api_params)
-            # On success the above call will return here. On error it will abort execution by calling fail_json.
+            target_list = [ rec['id'] for rec in new_networks if rec['type'] == 'EXTNET' ]
+
+            for netrunner in enet_iface_list:
+                if netrunner['id'] not in target_list:
+                    net2detach = dict(computeId=comp_dict['id'],
+                                    ipAddr=netrunner['ipAddress'],
+                                    mac=netrunner['mac'])
+                    detach_list.append(net2detach)
+                
+            for api_params in detach_list:
+                self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/netDetach", api_params)
+                # On success the above call will return here. On error it will abort execution by calling fail_json.
 
         for api_params in attach_list:
             self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/netAttach", api_params)
