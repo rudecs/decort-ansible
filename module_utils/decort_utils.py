@@ -878,11 +878,8 @@ class DecortController(object):
                     # match by IP address range
                     # if iface['ipAddress'] <-> erunner['name']
                     # enet_iface_list.append(erunner['id'])
-                    ip_extnet = netaddr.IPNetwork(erunner['ip'])
-                    if ip_addr.value < ip_extnet.first or ip_addr.value > ip_extnet.last:
-                        # out of net range
-                        continue
-                    else:
+                    ip_extnet = netaddr.IPNetwork(erunner['ipcidr'])
+                    if ip_addr.value >= ip_extnet.first and ip_addr.value <= ip_extnet.last:
                         iface_data = dict(id=erunner['id'],
                                         ipAddress=iface['ipAddress'],
                                         mac=iface['mac'])
