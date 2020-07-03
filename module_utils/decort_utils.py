@@ -428,6 +428,11 @@ class DecortController(object):
                                   "ID {} was requested.").format(comp_dict['id'])
             return
 
+        # Values that are specified via Jinja templating engine (e.g. "{{ new_size }}") may come 
+        # as strings. To make sure comparison of new values against current compute size is done 
+        # correcly, we explicitly cast them to type int here.
+        new_size = int(new_size)
+
         bdisk_size = 0
         bdisk_id = 0
         for disk in comp_dict['disks']:
@@ -454,7 +459,9 @@ class DecortController(object):
 
         api_params = dict(diskId=bdisk_id,
                           size=new_size)
-        self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/resize", api_params)
+        # NOTE: we are using API "resize2", as in this module we are managing 
+        # disks attached to compute(s) (DSF ver.2 only)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/resize2", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
         self.result['changed'] = True
@@ -504,8 +511,8 @@ class DecortController(object):
         #
         # then all values when entering this method will be of type string. We need to 
         # explicitly cast int type on all of them.
-        for repair in new_data_disks:
-            repair = int(repair)
+        for idx, repair in enumerate(new_data_disks):
+            new_data_disks[idx] = int(repair)
 
         for disk in comp_dict['disks']:
             if disk['type'] == 'B':
@@ -1024,6 +1031,12 @@ class DecortController(object):
 
         INVALID_STATES_FOR_HOT_DOWNSIZE = ["RUNNING", "MIGRATING", "DELETED"]
 
+        # Values that are specified via Jinja templating engine (e.g. "{{ new_ram_size }}") may come 
+        # as strings. To make sure comparison of new values against current compute size is done 
+        # correcly, we explicitly cast them to type int here.
+        new_cpu = int(new_cpu)
+        new_ram = int(new_ram)
+
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "compute_resize")
 
         if self.amodule.check_mode:
@@ -1060,7 +1073,7 @@ class DecortController(object):
                                      " - nothing to do.").format(comp_dict['id'])
             return
 
-        if ((comp_dict['cpus'] > new_cpu or comp_dict['memory'] > new_ram) and
+        if ((comp_dict['cpus'] > new_cpu or comp_dict['ram'] > new_ram) and
              comp_dict['status'] in INVALID_STATES_FOR_HOT_DOWNSIZE):
             while wait_for_state_change:
                 time.sleep(5)
@@ -1081,7 +1094,7 @@ class DecortController(object):
         api_params = dict(computeId=comp_dict['id'],
                           ram=new_ram,
                           cpu=new_cpu,)
-        self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/resize", api_resize_params)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/resize", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
         self.result['changed'] = True
@@ -2334,6 +2347,11 @@ class DecortController(object):
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_resize")
 
+        # Values that are specified via Jinja templating engine (e.g. "{{ new_size }}") may come 
+        # as strings. To make sure comparison of new values against current compute size is done 
+        # correcly, we explicitly cast them to type int here.
+        new_size = int(new_size)
+
         if self.amodule.check_mode:
             self.result['failed'] = False
             self.result['msg'] = ("disk_resize() in check mode: resize Disk ID {} "
@@ -2359,7 +2377,9 @@ class DecortController(object):
             return
 
         api_params = dict(diskId=disk_facts['id'], size=new_size)
-        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/resize", api_params)
+        # NOTE: we are using API "resize2", as in this module we are managing 
+        # disks attached to compute(s) (DSF ver.2 only)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/resize2", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
         self.result['changed'] = True
