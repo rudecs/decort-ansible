@@ -29,7 +29,7 @@ requirements:
      - PyJWT module
      - requests module
      - decort_utils utility library (module)
-     - DECORT cloud platform version 3.4.0 or higher
+     - DECORT cloud platform version 3.4.2 or higher
 notes:
      - Environment variables can be used to pass selected parameters to the module, see details below.
      - Specified Oauth2 provider must be trusted by the DECORT cloud controller on which JWT will be used.

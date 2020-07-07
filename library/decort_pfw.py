@@ -16,7 +16,7 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 
 DOCUMENTATION = '''
 ---
-module: decort_disk
+module: decort_pfw
 short_description: Manage network Port Forward rules for Compute instances in DECORT cloud
 description: >
      This module can be used to create new port forwarding rules in DECORT cloud platform, 
@@ -29,7 +29,7 @@ requirements:
      - PyJWT module
      - requests module
      - decort_utils utility library (module)
-     - DECORT cloud platform version 3.4.1 or higher
+     - DECORT cloud platform version 3.4.2 or higher
 notes:
      - Environment variables can be used to pass selected parameters to the module, see details below.
      - Specified Oauth2 provider must be trusted by the DECORT cloud controller on which JWT will be used.
@@ -105,7 +105,9 @@ options:
                be created, which maps specified external port range to local ports starting from I(local_port).'
         - '  - (int) local_port - port number on the local interface of the Compute. For ranged rule it is
                interpreted as a base port to translate public port range to internal port range.'
-        - '  - (string) porot - protocol, specify either I(tcp) or I(udp).'
+        - '  - (string) proto - protocol, specify either I(tcp) or I(udp).'
+        - 'Note that rules are meaningful only if I(state=present). If I(state=absent) is specified, rules set
+           will be ignored, and all rules for the specified Compute will be deleted.'
     state:
         description:
         - 'Specify the desired state of the port forwarding rules set for the Compute instance identified by
@@ -192,7 +194,7 @@ def decort_pfw_package_facts(pfw_facts, check_mode=False):
     ret_dict = dict(id=0,
                     name="none",
                     state="CHECK_MODE",
-                    comp_id=0,
+                    compute_id=0,
                     vins_id=0,
                     )
 
@@ -205,7 +207,7 @@ def decort_pfw_package_facts(pfw_facts, check_mode=False):
         ret_dict['state'] = "ABSENT"
         return ret_dict
 
-    ret_dict['comp_id'] = pfw_facts['com_id']
+    ret_dict['compute_id'] = pfw_facts['compute_id']
 
     return ret_dict
 
@@ -268,7 +270,7 @@ def main():
 
     decon = DecortController(amodule)
 
-    pfw_facts = None # will hold PFW facts
+    pfw_facts = None # will hold PFW facts as returned by pfw_configure
 
     #
     # Validate module arguments:
@@ -278,10 +280,10 @@ def main():
     # 4) Compute is connected to this ViNS
     #
 
-    validated_comp_id, comp_facts, rg_id = decon.compute_find(amodule.params['comp_id'])
+    validated_comp_id, comp_facts, rg_id = decon.compute_find(amodule.params['compute_id'])
     if not validated_comp_id:
         decon.result['failed'] = True
-        decon.result['msg'] = "Cannot find specified Compute ID {}.".format(amodule.params['comp_id'])
+        decon.result['msg'] = "Cannot find specified Compute ID {}.".format(amodule.params['compute_id'])
         amodule.fail_json(**decon.result)
 
     validated_vins_id, vins_facts = decon.vins_find(amodule.params['vins_id'])

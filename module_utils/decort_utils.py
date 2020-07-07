@@ -532,14 +532,16 @@ class DecortController(object):
             api_params = dict(computeId = comp_dict['id'], diskId=did)
             self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/diskDetach", api_params)
             # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['changed'] = True
 
         for did in attach_list:
             api_params = dict(computeId = comp_dict['id'], diskId=did)
             self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/diskAttach", api_params)
             # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['changed'] = True
 
         self.result['failed'] = False
-        self.result['changed'] = True
+        
         return
 
     def compute_delete(self, comp_id, permanently=False):
@@ -841,6 +843,7 @@ class DecortController(object):
         #
         # then all values (including those for 'id' key) when entering this method will be of 
         # type string. We need to explicitly cast int type on all of them.
+
         for repair in new_networks:
             repair['id'] = int(repair['id'])
 
@@ -931,13 +934,14 @@ class DecortController(object):
             for api_params in detach_list:
                 self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/netDetach", api_params)
                 # On success the above call will return here. On error it will abort execution by calling fail_json.
+                self.result['changed'] = True
 
         for api_params in attach_list:
             self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/netAttach", api_params)
             # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['changed'] = True
 
         self.result['failed'] = False
-        self.result['changed'] = True
 
         return
 
@@ -2473,14 +2477,12 @@ class DecortController(object):
                                       "for Compute ID {} are empty - nothing to do.").format(comp_facts['id'])
             return None
 
-        if not len(new_rules):
+        if new_rules == None or len(new_rules) == 0:
             # delete all existing rules for this Compute
-            api_params = dict(vinsId=vins_facts['id'])
-            for runner in existing_rules:
-                api_params['ruleId'] = runner['id']
-                self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/natRuleDel", api_params)
-            self.result['failed'] = False
-            self.result['chnaged'] = True
+            api_params = dict(vinsId=vins_facts['id'],
+                              ruleId=-1)
+            self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/natRuleDel", api_params)
+            self.result['changed'] = True
             return None
 
         # 
@@ -2540,6 +2542,8 @@ class DecortController(object):
         # tells what kind of action is expected on this rule - 'add' or 'del'
         # We first iterate to delete, then iterate again to add rules
 
+        # Sort pfw_delta_list so that the items with action="del" come first, and those with
+        # action='add' come last.
         # Iterate over pfw_delta_list and first delete port forwarding rules marked for deletion,
         # next create the rules marked for creation.
         api_base = "/restmachine/cloudapi/vins/"
@@ -2549,6 +2553,7 @@ class DecortController(object):
                                   ruleId=delta_rule['id'])
                 self.decort_api_call(requests.post, api_base + 'natRuleDel', api_params)
                 # On success the above call will return here. On error it will abort execution by calling fail_json.
+                self.result['changed'] = True
             elif delta_rule['action'] == 'add':
                 api_params = dict(vinsId=vins_facts['id'],
                                   intIp=iface_ipaddr,
@@ -2558,7 +2563,8 @@ class DecortController(object):
                                   proto=delta_rule['protocol'])
                 self.decort_api_call(requests.post, api_base + 'natRuleAdd', api_params)
                 # On success the above call will return here. On error it will abort execution by calling fail_json.
+                self.result['changed'] = True
 
         self.result['failed'] = False
-        self.result['changed'] = True
+       
         return
