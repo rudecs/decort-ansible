@@ -2419,6 +2419,24 @@ class DecortController(object):
     #
     ##############################
 
+    def _pfw_get(self, comp_id, vins_id):
+        """Convenience method to get current PFW rules for the specified compute ID.
+        """
+        api_params = dict(vinsId=vins_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/natRuleList", api_params)
+        all_rules = json.loads(api_resp.content.decode('utf8'))
+
+        if comp_id == 0:
+            # no filtering by compute ID, return rules as is
+            return all_rules
+
+        filtered_rules = []
+        for runner in all_rules:
+            if runner['vmId'] == comp_id:
+                filtered_rules.append(runner)
+
+        return filtered_rules
+
     def pfw_configure(self, comp_facts, vins_facts, new_rules=None):
         """Manage port forwarding rules for Compute in a smart way. The method will try to match existing
         rules against the new rules set and calculate the delta settings to apply to the corresponding 
@@ -2430,6 +2448,9 @@ class DecortController(object):
         to which PFW rules set will be applied.
         @param (list of dicts) new_rules: new PFW rules set. If None is passed, remove all existing
         PFW rules for the Compute.
+
+        @returns: list of dictionaries with PFW rules as returned by .../vins/natRuleList on success, 
+        None on error. 
         """
 
         # At the entry to this method we assume that initial validations are already passed, namely:
@@ -2450,11 +2471,14 @@ class DecortController(object):
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "pfw_configure")
 
+        ret_rules = []
+
         if self.amodule.check_mode:
             self.result['failed'] = False
             self.result['msg'] = ("pfw_configure() in check mode: port forwards configuration requested "
                                   "for Compute ID {} / ViNS ID {}").format(comp_facts['id'], vins_facts['id'])
-            return None
+            ret_rules = self._pfw_get(comp_facts['id'], vins_facts['id'])
+            return ret_rules
 
         iface_ipaddr = "" # keep IP address associated with Compute's connection to this ViNS - need this for natRuleDel API
         for iface in comp_facts['interfaces']:
@@ -2464,7 +2488,7 @@ class DecortController(object):
         else:
             decon.result['failed'] = True
             decon.result['msg'] = "Compute ID {} is not connected to ViNS ID {}.".format(comp_facts['id'], vins_facts['id'])
-            return None
+            return ret_rules
 
         existing_rules = []
         for runner in vins_facts['vnfs']['NAT']['config']['rules']:
@@ -2475,7 +2499,7 @@ class DecortController(object):
             self.result['failed'] = False
             self.result['warning'] = ("pfw_configure(): both existing and new port forwarding rule lists "
                                       "for Compute ID {} are empty - nothing to do.").format(comp_facts['id'])
-            return None
+            return ret_rules
 
         if new_rules == None or len(new_rules) == 0:
             # delete all existing rules for this Compute
@@ -2483,7 +2507,7 @@ class DecortController(object):
                               ruleId=-1)
             self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/natRuleDel", api_params)
             self.result['changed'] = True
-            return None
+            return ret_rules
 
         # 
         # delta_list will be a list of dictionaries that describe _changes_ to the port forwarding rules
@@ -2501,6 +2525,14 @@ class DecortController(object):
         for rule in new_rules:
             rule['action'] = 'add'
             rule_port_end = rule.get('public_port_end', rule['public_port_start'])
+            if rule_port_end > rule['public_port_start']:
+                # This is a ranged rule, i.e. when range of public ports maps to an equally
+                # sized range of local ports.
+                # For such case we have to make sure that the local port equals public
+                # port (this check & adjustment will be made by vnf_nat.add method anyway, but
+                # if we adjust here, we can avoid unnecessary rule del / add iteration in the
+                # module run, thus saving execution time)
+                rule['local_port'] = rule['public_port_start']
             for runner in existing_rules:
                 if (runner['publicPortStart'] == rule['public_port_start'] and
                     runner['publicPortEnd'] == rule_port_end and
@@ -2536,7 +2568,8 @@ class DecortController(object):
             self.result['failed'] = False
             self.result['warning'] = ("pfw_configure() no difference between current and new PFW rules "
                                       "found. No change applied to Compute ID {}.").format(comp_facts['id'])
-            return
+            ret_rules = self._pfw_get(comp_facts['id'], vins_facts['id'])
+            return ret_rules
 
         # now delta_list contains a list of enriched rule dictionaries with extra key 'action', which
         # tells what kind of action is expected on this rule - 'add' or 'del'
@@ -2566,5 +2599,6 @@ class DecortController(object):
                 self.result['changed'] = True
 
         self.result['failed'] = False
-       
-        return
+
+        ret_rules = self._pfw_get(comp_facts['id'], vins_facts['id'])
+        return ret_rules

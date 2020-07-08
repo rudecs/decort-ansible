@@ -32,7 +32,7 @@ requirements:
      - PyJWT module
      - requests module
      - decort_utils utility library (module)
-     - DECORT cloud platform version 3.4.0 or higher
+     - DECORT cloud platform version 3.4.2 or higher
 options:
     app_id:
         description:
