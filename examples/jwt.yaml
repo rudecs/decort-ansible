@@ -1,0 +1,18 @@
+#
+# More details on how to use DECORT Ansible module can be found at:
+#    https://github.com/rudecs/decort-ansible/wiki
+# 
+
+- hosts: ansible_master
+  tasks:
+  - name: obtain JWT
+    decort_jwt:
+      oauth2_url: "{{ decort_sso }}" # "https://sso.digitalenergy.online"
+      validity: 1200
+    register: my_jwt
+    delegate_to: localhost
+
+  - name: print out JWT
+    debug:
+      var: my_jwt.jwt
+    delegate_to: localhost

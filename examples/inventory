@@ -1,0 +1,2 @@
+[all]
+ansible_master ansible_host=<ansible host IP address> ansible_port=<SSH port on ansible host> ansible_user=root

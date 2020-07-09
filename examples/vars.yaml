@@ -1,0 +1,26 @@
+#
+# More details on how to use DECORT Ansible module can be found at:
+#    https://github.com/rudecs/decort-ansible/wiki
+# 
+
+decort_sso: "put DECORT SSO application URL here" # "https://sso.digitalenergy.online"
+decort_ctrl: "put DECORT controller URL here" # "https://ds1.digitalenergy.online"
+
+target_account_name: "your account name"
+target_rg_name: "target resource group name"
+os_image_name: "OS image name"
+
+vins01_name: "Vins01-ansible"
+vins02_name: "Vins02-ansible"
+target_ext_net_id: 0
+
+datadisk01_name: "Data01-ansible"
+datadisk01_size: 5
+
+datadisk02_name: "Data02-ansible"
+datadisk02_size: 5
+
+vm01_name: "Vm01-ansible"
+vm01_cpu: 1
+vm01_ram: 1024
+vm01_boot_disk: 10

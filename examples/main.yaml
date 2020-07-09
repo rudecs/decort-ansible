@@ -1,0 +1,190 @@
+#
+# More details on how to use DECORT Ansible module can be found at:
+#    https://github.com/rudecs/decort-ansible/wiki
+# 
+
+- hosts: ansible_master
+  vars_files:
+  - vars.yaml
+  tasks:
+  - name: obtain JWT
+    decort_jwt:
+       oauth2_url: "{{ decort_sso }}"
+       validity: 1200
+    register: token
+    delegate_to: localhost
+
+  - name: obtain OS image
+    decort_osimage:
+       authenticator: jwt
+       jwt: "{{ token.jwt }}"
+       oauth2_url: "{{ decort_sso }}"
+       controller_url: "{{ decort_ctrl }}"
+       image_name: "{{ os_image_name }}"
+       account_name: "{{ target_account_name }}"
+       verify_ssl: false
+    register: my_image
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: my_image.facts
+    delegate_to: localhost
+
+  - name: manage RG
+    decort_rg:
+       authenticator: jwt
+       jwt: "{{ token.jwt }}"
+       oauth2_url: "{{ decort_sso }}"
+       controller_url: "{{ decort_ctrl }}"
+       account_id: 32
+       rg_name: "{{ target_rg_name }}"
+       state: present
+       verify_ssl: false
+    register: my_rg
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: my_rg.facts
+    delegate_to: localhost
+
+  - name: manage ViNS 01
+    decort_vins:
+       authenticator: jwt
+       jwt: "{{ token.jwt }}"
+       oauth2_url: "{{ decort_sso }}"
+       controller_url: "{{ decort_ctrl }}"
+       vins_name: "{{ vins01_name }}"
+       rg_id: "{{ my_rg.facts.id }}"
+       ext_net_id: "{{ target_ext_net_id }}"
+       state: present
+       verify_ssl: false
+    register: my_vins01
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: my_vins01.facts
+    delegate_to: localhost
+
+  - name: manage ViNS 02
+    decort_vins:
+       authenticator: jwt
+       jwt: "{{ token.jwt }}"
+       oauth2_url: "{{ decort_sso }}"
+       controller_url: "{{ decort_ctrl }}"
+       vins_name: "{{ vins02_name }}"
+       rg_id: "{{ my_rg.facts.id }}"
+       ext_net_id: -1
+       state: present
+       verify_ssl: false
+    register: my_vins02
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: my_vins02.facts
+    delegate_to: localhost
+
+  - name: manage data disk 01
+    decort_disk:
+       authenticator: jwt
+       jwt: "{{ token.jwt }}"
+       oauth2_url: "{{ decort_sso }}"
+       controller_url: "{{ decort_ctrl }}"
+       name: "{{ datadisk01_name }}"
+       size: "{{ datadisk01_size }}"
+       account_name: "{{ target_account_name }}"
+       pool: data01
+       place_with: "{{ my_image.facts.id }}"
+       state: present
+       verify_ssl: false
+    register: my_disk01
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: my_disk01.facts
+    delegate_to: localhost
+
+  - name: manage data disk 02
+    decort_disk:
+       authenticator: jwt
+       jwt: "{{ token.jwt }}"
+       oauth2_url: "{{ decort_sso }}"
+       controller_url: "{{ decort_ctrl }}"
+       name: "{{ datadisk02_name }}"
+       size: "{{ datadisk02_size }}"
+       account_name: "{{ target_account_name }}"
+       pool: data01
+       place_with: "{{ my_image.facts.id }}"
+       state: present
+       verify_ssl: false
+    register: my_disk02
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: my_disk02.facts
+    delegate_to: localhost
+
+  - name: manage KVM X86 VM
+    decort_kvmvm:
+       authenticator: jwt
+       jwt: "{{ token.jwt }}"
+       oauth2_url: "{{ decort_sso }}"
+       controller_url: "{{ decort_ctrl }}"
+       name: "{{ vm01_name }}"
+       arch: KVM_X86
+       ram: "{{ vm01_ram }}"
+       cpu: "{{ vm01_cpu }}"
+       image_id: "{{ my_image.facts.id }}"
+       boot_disk: "{{ vm01_boot_disk }}"
+       data_disks:
+         - "{{ my_disk01.facts.id }}"
+         - "{{ my_disk02.facts.id }}"
+       networks:
+         - type: VINS
+           id: "{{ my_vins01.facts.id }}"
+         - type: VINS
+           id: "{{ my_vins02.facts.id }}"
+         - type: EXTNET
+           id: "{{ target_ext_net_id }}"
+       rg_id: "{{ my_rg.facts.id }}"
+       state: present
+       verify_ssl: false
+    register: my_kvmvm
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: my_kvmvm.facts
+    delegate_to: localhost
+
+  - name: manage PFW rules on Compute
+    decort_pfw:
+       authenticator: jwt
+       jwt: "{{ token.jwt }}"
+       oauth2_url: "{{ decort_sso }}"
+       controller_url: "{{ decort_ctrl }}"
+       compute_id: "{{ my_kvmvm.facts.id }}"
+       vins_id: "{{ my_vins01.facts.id }}"
+       rules:
+         - public_port_start: 30022
+           local_port: 22
+           proto: tcp
+         - public_port_start: 30080
+           public_port_end: 30085
+           local_port: 30080
+           proto: tcp
+       state: present
+       verify_ssl: false
+    register: my_pfw
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: my_pfw.facts
+    delegate_to: localhost
+
