@@ -29,8 +29,9 @@ author:
      - Sergey Shubin <sergey.shubin@digitalenergy.online>
 requirements:
      - python >= 2.6
-     - PyJWT module
-     - requests module
+     - PyJWT Python module
+     - requests Python module
+     - netaddr Python module
      - decort_utils utility library (module)
      - DECORT cloud platform version 3.4.2 or higher.
 notes:

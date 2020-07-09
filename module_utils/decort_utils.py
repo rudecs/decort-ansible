@@ -22,6 +22,13 @@ method with properly configured arguments.
 
 NOTE: this utility library requires DECORT platform version 3.4.0 or higher. 
 It is not compatible with older versions.
+
+Requirements:
+- python >= 2.6
+- PyJWT Python module
+- requests Python module
+- netaddr Python module
+- DECORT cloud platform version 3.4.2 or higher
 """
 
 import copy
