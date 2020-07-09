@@ -182,7 +182,7 @@ from ansible.module_utils.basic import env_fallback
 from ansible.module_utils.decort_utils import *
 
 
-def decort_pfw_package_facts(comp_id, vins_id, pfw_facts, check_mode=False):
+def decort_pfw_package_facts(comp_facts, vins_facts, pfw_facts, check_mode=False):
     """Package a dictionary of PFW rules facts according to the decort_pfw module specification. 
     This dictionary will be returned to the upstream Ansible engine at the completion of 
     the module run.
@@ -193,8 +193,9 @@ def decort_pfw_package_facts(comp_id, vins_id, pfw_facts, check_mode=False):
 
     ret_dict = dict(state="CHECK_MODE",
                     compute_id=0,
-                    vins_id=0,
+                    public_ip="",
                     rules=[],
+                    vins_id=0,
                     )
 
     if check_mode:
@@ -206,8 +207,9 @@ def decort_pfw_package_facts(comp_id, vins_id, pfw_facts, check_mode=False):
         ret_dict['state'] = "ABSENT"
         return ret_dict
 
-    ret_dict['compute_id'] = comp_id
-    ret_dict['vins_id'] = vins_id
+    ret_dict['compute_id'] = comp_facts['id']
+    ret_dict['vins_id'] = vins_facts['id']
+    ret_dict['public_ip'] = vins_facts['vnfs']['GW']['config']['ext_net_ip']
     
     if len(pfw_facts) != 0:
         ret_dict['state'] = 'PRESENT'
@@ -322,9 +324,8 @@ def main():
         amodule.fail_json(**decon.result)
     else:
         # prepare PFW facts to be returned as part of decon.result and then call exit_json(...)
-        decon.result['facts'] = decort_pfw_package_facts(comp_facts['id'], vins_facts['id'], pfw_facts, amodule.check_mode)
+        decon.result['facts'] = decort_pfw_package_facts(comp_facts, vins_facts, pfw_facts, amodule.check_mode)
         amodule.exit_json(**decon.result)
-
 
 if __name__ == "__main__":
     main()
