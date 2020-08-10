@@ -213,14 +213,14 @@ class DecortController(object):
         # catch requests.exceptions.ConnectionError to handle incorrect oauth2_url case
         try:
             token_get_resp = requests.post(token_get_url, data=req_data, verify=self.verify_ssl)
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as errco:
             self.result['failed'] = True
-            self.result['msg'] = "Failed to connect to '{}' to obtain JWT access token".format(token_get_url)
+            self.result['msg'] = "Failed to connect to '{}' to obtain JWT access token: {}".format(token_get_url, errco)
             self.amodule.fail_json(**self.result)
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as errti:
             self.result['failed'] = True
-            self.result['msg'] = "Timeout when trying to connect to '{}' to obtain JWT access token".format(
-                token_get_url)
+            self.result['msg'] = "Timeout when trying to connect to '{}' to obtain JWT access token: {}".format(
+                token_get_url, errti)
             self.amodule.fail_json(**self.result)
 
         # alternative -- if resp == requests.codes.ok

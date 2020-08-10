@@ -132,13 +132,13 @@ def main():
     # catch requests.exceptions.ConnectionError to handle incorrect oauth2_url case
     try:
         token_get_resp = requests.post(token_get_url, data=req_data, verify=amodule.params['verify_ssl'])
-    except requests.exceptions.ConnectionError:
+    except requests.exceptions.ConnectionError as errco:
         result.update(failed=True)
-        result['msg'] = "Failed to connect to {}".format(token_get_url)
+        result['msg'] = "Failed to connect to {}: {}".format(token_get_url, errco)
         amodule.fail_json(**result)
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as errti:
         result.update(failed=True)
-        result['msg'] = "Timeout when trying to connect to {}".format(token_get_url)
+        result['msg'] = "Timeout when trying to connect to {}: {}".format(token_get_url, errti)
         amodule.fail_json(**result)
 
     # alternative -- if resp == requests.codes.ok

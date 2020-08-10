@@ -533,7 +533,15 @@ class decort_kvmvm(DecortController):
         else:
             validated_bdisk_size =self.amodule.params['boot_disk']
 
-        start_compute = True
+        # NOTE: due to a libvirt "feature", that impacts management of a VM created without any network interfaces,
+        # we create KVM VM in HALTED state.
+        # Consequently, if desired state is different from 'halted' or 'porewedoff", we should explicitly start it
+        # in the upstream code.
+        # See corresponding NOTE below for another place where this "feature" is redressed for.
+        #
+        # Once this "feature" is fixed, make sure VM is created according to the actual desired state
+        #
+        start_compute = False # change this once a workaround for the aforementioned libvirt "feature" is implemented 
         if self.amodule.params['state'] in ('halted', 'poweredoff'):
             start_compute = False
         
@@ -548,6 +556,7 @@ class decort_kvmvm(DecortController):
 
         # if we get through here, all parameters required to create new Compute instance should be at hand
 
+        # NOTE: KVM VM is created in HALTED state and must be explicitly started
         self.comp_id = self.kvmvm_provision(rg_id=self.rg_id, 
                                     comp_name=self.amodule.params['name'], arch=self.amodule.params['arch'],
                                     cpu=self.amodule.params['cpu'], ram=self.amodule.params['ram'],
@@ -555,7 +564,7 @@ class decort_kvmvm(DecortController):
                                     image_id=image_facts['id'],
                                     annotation=self.amodule.params['annotation'],
                                     userdata=cloud_init_params,
-                                    start_on_create=start_compute)
+                                    start_on_create=start_compute) 
         self.comp_should_exist = True
         
         # Need to re-read comp_info after VM was provisioned
@@ -568,7 +577,12 @@ class decort_kvmvm(DecortController):
         self.compute_networks(self.comp_info, self.amodule.params['networks']) 
         # Next manage data disks
         self.compute_data_disks(self.comp_info, self.amodule.params['data_disks'])
-        # read in Compute facts after all initial setup is complete
+
+        # NOTE: see NOTE above regarding libvirt "feature" and new VMs created in HALTED state
+        if self.amodule.params['state'] not in ('halted', 'poweredoff'):
+            self.compute_powerstate(self.comp_info, 'started')
+        
+        # read in Compute facts once more after all initial setup is complete
         _, self.comp_info, _ = self.compute_find(comp_id=self.comp_id)
 
         return
