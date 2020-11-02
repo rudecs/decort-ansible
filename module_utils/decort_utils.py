@@ -625,6 +625,8 @@ class DecortController(object):
         @return: (int) ret_rg_id - validated ID of the RG, where this Compute instance was found.
         """
 
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "compute_find")
+
         COMP_INVALID_STATES = ["DESTROYED", "DELETED", "ERROR", "DESTROYING"]
 
         ret_comp_id = 0
@@ -1251,7 +1253,7 @@ class DecortController(object):
 
         if self.amodule.check_mode:
             self.result['failed'] = False
-            self.result['msg'] = "rg_delete() in check mode: delete RG ID {} was requested.".format(arg_rg_id)
+            self.result['msg'] = "rg_delete() in check mode: delete RG ID {} was requested.".format(rg_id)
             return
 
         #

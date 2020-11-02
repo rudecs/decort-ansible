@@ -829,7 +829,7 @@ def main():
         if subj.comp_info['status'] in ("DISABLED", "MIGRATING", "DELETING", "DESTROYING", "ERROR", "REDEPLOYING"):
             # cannot do anything on the existing Compute in the listed states
             subj.error() # was subj.nop()
-        elif subj.comp_info['status'] == "ENABLED":
+        elif subj.comp_info['status'] in ("ENABLED", "DISABLED"):
             if amodule.params['state'] == 'absent':
                 subj.destroy()
             elif amodule.params['state'] in ('present', 'paused', 'poweredon', 'poweredoff', 'halted'):
@@ -843,8 +843,9 @@ def main():
                 _, subj.comp_info, _ = subj.compute_find(comp_id=subj.comp_id)
                 subj.modify()
             elif amodule.params['state'] == 'absent':
-                subj.nop()
-                subj.comp_should_exist = False
+                # subj.nop()
+                # subj.comp_should_exist = False
+                subj.destroy()
             elif amodule.params['state'] in ('paused', 'poweredoff', 'halted'):
                 subj.error()
         elif subj.comp_info['status'] == "DESTROYED":
