@@ -570,8 +570,22 @@ class decort_kvmvm(DecortController):
                                     start_on_create=start_compute) 
         self.comp_should_exist = True
         
-        # Need to re-read comp_info after VM was provisioned
-        _, self.comp_info, _ = self.compute_find(self.comp_id)
+        # Originally we would have had to re-read comp_info after VM was provisioned
+        # _, self.comp_info, _ = self.compute_find(self.comp_id)
+
+        # However, to avoid extra call to compute/get API we need to construct comp_info so that
+        # the below calls to compute_networks and compute_data_disks work properly.
+        # 
+        # Here we are imitating comp_info structure as if it has been returned by a real call 
+        # to API compute/get 
+        self.comp_info = {
+            'id':  self.comp_id,
+            'accountId': self.acc_id,
+            'status': "ENABLED",
+            'techStatus': "STOPPED",
+            'interfaces': [], # new compute instance is created network-less
+            'disks': [], # new compute instance is created without any data disks attached
+        }
 
         # 
         # Compute was created

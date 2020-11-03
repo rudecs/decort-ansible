@@ -2273,16 +2273,15 @@ class DecortController(object):
                 return 0, None
         elif disk_name != "":
             if account_id > 0:
-                api_params = dict(accountId=account_id,
-                                  name=disk_name,
-                                  showAll=False) # we do not want to see disks in DESTROYED, PURGED or invalid states 
-                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/search", api_params)
+                api_params = dict(accountId=account_id)
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/list", api_params)
                 # the above call may return more than one matching disk
                 disks_list = json.loads(api_resp.content.decode('utf8'))
                 for runner in disks_list:
-                    # return first disk on this list that fulfills status matching rule
-                    if not check_state or ret_disk_facts['status'] not in DISK_INVALID_STATES:
-                        return runner['id'], runner
+                    # return the first disk of the specified name that fulfills status matching rule
+                    if runner['name'] == disk_name:
+                        if not check_state or runner['status'] not in DISK_INVALID_STATES:
+                            return runner['id'], runner
                 else:
                     return 0, None
             else: # we are missing meaningful account_id - fail the module
