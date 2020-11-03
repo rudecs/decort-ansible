@@ -380,6 +380,9 @@ class decort_kvmvm(DecortController):
         super(decort_kvmvm, self).__init__(arg_amodule)
 
         self.comp_should_exist = False
+        # This following flag is used to avoid extra (and unnecessary) get of compute details prior to 
+        # packaging facts before the module completes. As ""
+        self.skip_final_get = False
         self.comp_id = 0
         self.comp_info = None
         self.acc_id = 0
@@ -584,6 +587,8 @@ class decort_kvmvm(DecortController):
         
         # read in Compute facts once more after all initial setup is complete
         _, self.comp_info, _ = self.compute_find(comp_id=self.comp_id)
+
+        self.skip_final_get = True
 
         return
 
@@ -872,14 +877,13 @@ def main():
         # prepare Compute facts to be returned as part of decon.result and then call exit_json(...)
         rg_facts = None
         if subj.comp_should_exist:
-            if subj.result['changed']:
+            if subj.result['changed'] and not subj.skip_final_get:
                 # There were changes to the Compute - refresh Compute facts.
                 _, subj.comp_info, _ = subj.compute_find(comp_id=subj.comp_id)
             #
-            # TODO: check if we really need to get RG facts here in view of DNF implementation
-            # we need to extract RG facts regardless of 'changed' flag, as it is our source of information on
-            # the VDC external IP address
-            _, rg_facts = subj.rg_find(arg_account_id=0, arg_rg_id=subj.rg_id)
+            # We no longer need to re-read RG facts, as all network info is now available inside
+            # compute structure
+            # _, rg_facts = subj.rg_find(arg_account_id=0, arg_rg_id=subj.rg_id)
         subj.result['facts'] = subj.package_facts(amodule.check_mode)
         amodule.exit_json(**subj.result)
 
