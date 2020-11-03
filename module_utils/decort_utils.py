@@ -615,14 +615,14 @@ class DecortController(object):
         @param (string) comp_name: name of the Compute to locate. Locating Compute instance by name requires 
         that comp_id is set to 0 and non-zero rg_id is specified.
         @param (int) rg_id: ID of the RG to locate Compute instance in. This parameter is used when locating 
-        Compute by name and ignored otherwise.
+        Compute by name and ignored otherwise. Note that this method does not validate RG ID.
         @param (bool) check_state: check that VM in valid state if True. Note that this check is skpped if 
         non-zero comp_id is passed to the method.
 
         @return: (int) ret_comp_id - ID of the Compute on success (if the Compute was found), 0 otherwise.
         @return: (dict) ret_comp_dict - dictionary with Compute details on success as returned by 
         /cloudapi/compute/get, None otherwise.
-        @return: (int) ret_rg_id - validated ID of the RG, where this Compute instance was found.
+        @return: (int) ret_rg_id - ID of the RG, where this Compute instance was found.
         """
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "compute_find")
@@ -631,8 +631,8 @@ class DecortController(object):
 
         ret_comp_id = 0
         ret_comp_dict = None
-        validated_rg_id = 0
-        validated_rg_facts = None
+        # validated_rg_id = 0
+        # validated_rg_facts = None
 
         if comp_id:
             # locate Compute instance by ID - if there is no Compute with such ID, the method will abort
@@ -645,43 +645,39 @@ class DecortController(object):
                 self.amodule.fail_json(**self.result)
                 # fail the module - exit
         else:
-            # If no comp_id specified, then we have to locate Compute by combination of compute name and RG ID.
-            # To locate RG we need either non zero RG ID or non empty RG name - do corresponding sanity check
-            if not rg_id or comp_name == "":
+            # If no comp_id specified, then we have to locate Compute by combination of compute name and RG ID
+            # Therefore, RG ID cannot be zero and compute name cannot be empty.
+            if not rg_id and comp_name == "":
                 self.result['failed'] = True
-                self.result['msg'] = "compute_find(): cannot find Compute by name when name is empty or RG ID is zero."
+                self.result['msg'] = "compute_find(): cannot find Compute by name when either name is empty or RG ID is zero."
                 self.amodule.fail_json(**self.result)
                 # fail the module - exit
 
-            validated_rg_id, validated_rg_facts = self._rg_get_by_id(rg_id)
-            if validated_rg_id:
-                api_params = {
-                    'includedeleted': True,
-                }
-                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/list", api_params)
-                if api_resp.status_code == 200:
-                    comp_list = json.loads(api_resp.content.decode('utf8'))
-                else:
-                    self.result['warning'] = ("compute_find(): failed to get list Computes. HTTP code {}, "
-                                            "response {}.").format(api_resp.status_code, api_resp.reason)
-                
-                # if we have validated RG ID at this point, look up Compute by name in this RG
-                # rg.vms list contains IDs of compute instances registered with this RG until compute is
-                # destroyed. So we may see here computes in "active" and DELETED states.
-                for runner in comp_list:
-                    if runner['name'] == comp_name and runner['rgId'] == validated_rg_id:
-                        if not check_state or runner['status'] not in COMP_INVALID_STATES:
-                            ret_comp_id = runner['id']
-                            _, ret_comp_dict, _ = self._compute_get_by_id(ret_comp_id)
-                            break
+            api_params = dict(includedeleted=True,)
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/list", api_params)
+            if api_resp.status_code == 200:
+                comp_list = json.loads(api_resp.content.decode('utf8'))
             else:
-                # validated_rg_id is zero - seems that we've been given RG ID for non-existent resource group.
                 self.result['failed'] = True
-                self.result['msg'] = "compute_find(): cannot get RG ID {} to search for Compute by name.".format(rg_id)
+                self.result['msg'] = ("compute_find(): failed to get list Computes. HTTP code {}, "
+                                        "response {}.").format(api_resp.status_code, api_resp.reason)
                 self.amodule.fail_json(**self.result)
                 # fail the module - exit
+            
+            # if we have validated RG ID at this point, look up Compute by name in this RG
+            # rg.vms list contains IDs of compute instances registered with this RG until compute is
+            # destroyed. So we may see here computes in "active" and DELETED states.
+            for runner in comp_list:
+                if runner['name'] == comp_name and runner['rgId'] == rg_id:
+                    if not check_state or runner['status'] not in COMP_INVALID_STATES:
+                        ret_comp_id = runner['id']
+                        # we still need to get compute info from the model to make sure
+                        # compute dictionary contains complete data in correct format
+                        _, ret_comp_dict, _ = self._compute_get_by_id(ret_comp_id)
+                        break
 
-        return ret_comp_id, ret_comp_dict, validated_rg_id
+        # NOTE: if there were no errors, but compute was not found, ret_comp_id=0 is returned
+        return ret_comp_id, ret_comp_dict, rg_id
 
     def compute_powerstate(self, comp_facts, target_state, force_change=True):
         """Manage Compute power state transitions or its guest OS restarts.
