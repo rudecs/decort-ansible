@@ -672,7 +672,7 @@ class DecortController(object):
                     if runner['name'] == comp_name and runner['rgId'] == validated_rg_id:
                         if not check_state or runner['status'] not in COMP_INVALID_STATES:
                             ret_comp_id = runner['id']
-                            ret_comp_dict = runner
+                            _, ret_comp_dict, _ = self._compute_get_by_id(ret_comp_id)
                             break
             else:
                 # validated_rg_id is zero - seems that we've been given RG ID for non-existent resource group.
