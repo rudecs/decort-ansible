@@ -655,15 +655,24 @@ class DecortController(object):
 
             validated_rg_id, validated_rg_facts = self._rg_get_by_id(rg_id)
             if validated_rg_id:
+                api_params = {
+                    'includedeleted': True,
+                }
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/list", api_params)
+                if api_resp.status_code == 200:
+                    comp_list = json.loads(api_resp.content.decode('utf8'))
+                else:
+                    self.result['warning'] = ("compute_find(): failed to get list Computes. HTTP code {}, "
+                                            "response {}.").format(api_resp.status_code, api_resp.reason)
+                
                 # if we have validated RG ID at this point, look up Compute by name in this RG
                 # rg.vms list contains IDs of compute instances registered with this RG until compute is
                 # destroyed. So we may see here computes in "active" and DELETED states.
-                for runner in validated_rg_facts['vms']:
-                    _, runner_dict, _ = self._compute_get_by_id(runner)
-                    if runner_dict['name'] == comp_name:
-                        if not check_state or runner_dict['status'] not in COMP_INVALID_STATES:
-                            ret_comp_id = runner
-                            ret_comp_dict = runner_dict
+                for runner in comp_list:
+                    if runner['name'] == comp_name and runner['rgId'] == validated_rg_id:
+                        if not check_state or runner['status'] not in COMP_INVALID_STATES:
+                            ret_comp_id = runner['id']
+                            ret_comp_dict = runner
                             break
             else:
                 # validated_rg_id is zero - seems that we've been given RG ID for non-existent resource group.
