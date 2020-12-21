@@ -870,7 +870,7 @@ class DecortController(object):
                                 "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
             return
 
-        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/externalnetwork/list", api_params)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/extnet/list", api_params)
         extnet_list = json.loads(api_resp.content.decode('utf8')) # list of dicts: "name" holds "NET_ADDR/NETMASK", "id" is ID
         if not len(vins_list):
             self.result['failed'] = True
