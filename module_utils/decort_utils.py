@@ -864,19 +864,28 @@ class DecortController(object):
         api_params = dict(accountId = comp_dict['accountId'])
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/search", api_params)
         vins_list = json.loads(api_resp.content.decode('utf8'))
-        if not len(vins_list):
-            self.result['failed'] = True
-            self.result['msg'] = ("compute_networks() cannot obtain VINS list for Account ID {}, "
-                                "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
-            return
+        #
+        # We should not fail the module if ViNS list is empty - it is not an error, as in case of
+        # API failure "decort_api_call" will abort the module execution on its own. Hence the 
+        # following code fragment is commented out
+        #
+        # if not len(vins_list):
+        #    self.result['failed'] = True
+        #    self.result['msg'] = ("compute_networks() cannot obtain VINS list for Account ID {}, "
+        #                        "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
+        #    return
 
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/extnet/list", api_params)
         extnet_list = json.loads(api_resp.content.decode('utf8')) # list of dicts: "name" holds "NET_ADDR/NETMASK", "id" is ID
-        if not len(extnet_list):
-            self.result['failed'] = True
-            self.result['msg'] = ("compute_networks() cannot obtain External networks list for Account ID {}, "
-                                "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
-            return
+        #
+        # Empty extnet_list does not constitute error condition, so we should not fail the module in 
+        # this case. Therefore the following code fragment is commented out.
+        #
+        # if not len(extnet_list):
+        #    self.result['failed'] = True
+        #    self.result['msg'] = ("compute_networks() cannot obtain External networks list for Account ID {}, "
+        #                        "Compute ID {}.").format(comp_dict['accountId'], comp_dict['id'])
+        #    return
 
         # Prepare the lists of network interfaces for the compute instance:
         vins_iface_list = [] # will contain dict(id=<int>, ipAddress=<str>, mac=<str>) for ifaces connected to ViNS(es)
@@ -901,6 +910,19 @@ class DecortController(object):
                                         ipAddress=iface['ipAddress'],
                                         mac=iface['mac'])
                         enet_iface_list.append(iface_data)
+
+        # If at this point compt_dict["interfaces"] lists some interfaces, but neither vins_iface_list
+        # nor enet_iface_list contain any members, it means that none of the ViNS or Ext Nets currently 
+        # available to us match existing interfaces of the Compute instance.
+        # This is abnormal condition and we should not proceed any further.
+        if len(comp_dict['interfaces']) and (not len(vins_iface_list) and not len(enet_iface_list)):
+            self.result['failed'] = True
+            self.result['msg'] = ("compute_networks() no match between {} interface(s) of Compute ID {}"
+                                "and available {} ViNS(es) or {} ExtNet(s).").format(len(comp_dict['interfaces']),
+                                                                                     comp_dict['id'], 
+                                                                                     len(vins_list),
+                                                                                     len(extnet_list))
+            return
 
         vins_id_list = [ rec['id'] for rec in vins_iface_list ]
 
