@@ -2323,7 +2323,7 @@ class DecortController(object):
 
         return 0, None
 
-    def disk_provision(self, disk_name, size, account_id, sep_id, pool="default", desc="", location=""):
+    def disk_provision(self, disk_name, size, account_id, sep_id, pool_name="", desc="", location=""):
         """Provision Disk according to the specified arguments.
         Note that disks created by this method will be of type 'D' (data disks).
         If critical error occurs the embedded call to API function will abort further execution 
@@ -2361,8 +2361,9 @@ class DecortController(object):
                           description=desc,
                           size=size,
                           type='D',
-                          sep_id=sep_id,
-                          pool=pool,)
+                          sep_id=sep_id,)
+        if pool_name != "":
+            api_params['pool'] = pool_name
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/create", api_params)
         if api_resp.status_code == 200:
             ret_disk_id = json.loads(api_resp.content.decode('utf8'))

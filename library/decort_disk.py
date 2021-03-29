@@ -139,7 +139,7 @@ options:
         description:
         - Name of the pool where to place new disk. Once disk is created, its pool cannot be changed.
         - This parameter is used when creating new disk and igonred for all other operations.
-        default: default
+        default: empty string
         required: no
     sep_id:
         description:
@@ -209,7 +209,6 @@ EXAMPLES = '''
       controller_url: "https://cloud.digitalenergy.online"
       name: "MyDataDisk01"
       sep_id: 1
-      pool: "default"
       size: 50
       account_name: "MyAccount"
       state: present
@@ -316,7 +315,7 @@ def decort_disk_parameters():
                       fallback=(env_fallback, ['DECORT_PASSWORD']),
                       no_log=True),
         place_with=dict(type='int', required=False, default=0),
-        pool=dict(type='str', required=False, default='default'),
+        pool=dict(type='str', required=False, default=''),
         sep_id=dict(type='int', required=False, default=0),
         size=dict(type='int', required=False),
         state=dict(type='str',
@@ -402,7 +401,7 @@ def main():
 
     disk_should_exist = False
     target_sep_id = 0
-    target_pool = "default"
+    # target_pool = ""
     
     if disk_id:
         disk_should_exist = True
