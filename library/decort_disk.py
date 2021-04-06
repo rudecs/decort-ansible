@@ -508,7 +508,7 @@ def main():
                                             size=amodule.params['size'],
                                             account_id=validated_acc_id, 
                                             sep_id=target_sep_id,
-                                            pool=amodule.params['pool'],
+                                            pool_name=amodule.params['pool'],
                                             desc=amodule.params['annotation'],
                                             location="")
             disk_should_exist = True            
