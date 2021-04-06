@@ -518,8 +518,11 @@ class DecortController(object):
         #
         # then all values when entering this method will be of type string. We need to 
         # explicitly cast int type on all of them.
-        for idx, repair in enumerate(new_data_disks):
-            new_data_disks[idx] = int(repair)
+        if new_data_disks is not None:
+            for idx, repair in enumerate(new_data_disks):
+                new_data_disks[idx] = int(repair)
+        else:
+            new_data_disks = []
 
         for disk in comp_dict['disks']:
             if disk['type'] == 'B':
