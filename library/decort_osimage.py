@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 # Digital Enegry Cloud Orchestration Technology (DECORT) modules for Ansible
-# Copyright: (c) 2018-2020 Digital Energy Cloud Solutions LLC
+# Copyright: (c) 2018-2021 Digital Energy Cloud Solutions LLC
 #
 # Apache License 2.0 (see http://www.apache.org/licenses/LICENSE-2.0.txt)
 #
@@ -33,7 +33,7 @@ requirements:
      - requests Python module
      - netaddr Python module
      - decort_utils utility library (module)
-     - DECORT cloud platform version 3.4.2 or higher.
+     - DECORT cloud platform version 3.6.1 or higher.
 notes:
      - Environment variables can be used to pass selected parameters to the module, see details below.
      - Specified Oauth2 provider must be trusted by the DECORT cloud controller on which JWT will be used.

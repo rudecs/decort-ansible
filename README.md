@@ -1,5 +1,5 @@
 # decort-ansible
-Ansible modules for Digital Energy Orchestration Technology (DECORT) platform v3.5.0 and above
+Ansible modules for Digital Energy Orchestration Technology (DECORT) platform v3.6.1 and above.
 
 Note that this module may produce unreliable results when used with older DECORT API versions. 
 

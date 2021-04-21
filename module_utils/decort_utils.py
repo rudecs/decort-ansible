@@ -1,6 +1,6 @@
 #
 # Digital Enegry Cloud Orchestration Technology (DECORT) modules for Ansible
-# Copyright: (c) 2018-2020 Digital Energy Cloud Solutions LLC
+# Copyright: (c) 2018-2021 Digital Energy Cloud Solutions LLC
 #
 # Apache License 2.0 (see http://www.apache.org/licenses/LICENSE-2.0.txt)
 #
@@ -28,7 +28,7 @@ Requirements:
 - PyJWT Python module
 - requests Python module
 - netaddr Python module
-- DECORT cloud platform version 3.4.2 or higher
+- DECORT cloud platform version 3.6.1 or higher
 """
 
 import copy
