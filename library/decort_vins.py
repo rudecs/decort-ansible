@@ -273,7 +273,7 @@ def decort_vins_package_facts(arg_vins_facts, arg_check_mode=False):
     ret_dict['name'] = arg_vins_facts['name']
     ret_dict['state'] = arg_vins_facts['status']
     ret_dict['account_id'] = arg_vins_facts['accountId']
-    ret_dict['rg_id'] = arg_vins_facts['rgid']
+    ret_dict['rg_id'] = arg_vins_facts['rgId']
     ret_dict['int_net_addr'] = arg_vins_facts['network']
     ret_dict['gid'] = arg_vins_facts['gid']
 
@@ -385,7 +385,7 @@ def main():
             decon.fail_json(**decon.result)
         vins_level="ID"
         validated_acc_id = vins_facts['accountId']
-        validated_rg_id = vins_facts['rgid']
+        validated_rg_id = vins_facts['rgId']
     elif amodule.params['rg_id']:
         # expect ViNS @ RG level in the RG with specified ID
         vins_level="RG"

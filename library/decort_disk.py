@@ -274,7 +274,7 @@ def decort_disk_package_facts(disk_facts, check_mode=False):
     ret_dict['size'] = disk_facts['sizeMax']
     ret_dict['state'] = disk_facts['status']
     ret_dict['account_id'] = disk_facts['accountId']
-    ret_dict['sep_id'] = disk_facts['sepid']
+    ret_dict['sep_id'] = disk_facts['sepId']
     ret_dict['pool'] = disk_facts['pool']
     ret_dict['attached_to'] = disk_facts['vmid']
     ret_dict['gid'] = disk_facts['gid']
@@ -454,10 +454,10 @@ def main():
                     # request to place this disk on the same SEP as the specified OS image
                     # validate specified OS image and assign SEP ID accordingly
                     image_id, image_facts = decon.image_find(amodule.params['place_with'], "", 0)
-                    target_sep_id = image_facts['sepid']
+                    target_sep_id = image_facts['sepId']
                 else:
-                    # no new SEP ID is explicitly specified, and no place_with option - use sep_id from the disk_facts
-                    target_sep_id = disk_facts['sepid']
+                    # no new SEP ID is explicitly specified, and no place_with option - use sepId from the disk_facts
+                    target_sep_id = disk_facts['sepId']
                 disk_id = decon.disk_provision(disk_name=disk_facts['name'], # as this disk was found, its name is in the facts
                                                size=amodule.params['size'],
                                                account_id=validated_acc_id, 
@@ -495,7 +495,7 @@ def main():
                 # request to place this disk on the same SEP as the specified OS image
                 # validate specified OS image and assign SEP ID accordingly
                 image_id, image_facts = decon.image_find(amodule.params['place_with'], "", 0)
-                target_sep_id = image_facts['sepid']
+                target_sep_id = image_facts['sepId']
             else:
                 # no SEP ID is explicitly specified, and no place_with option - we do not know where
                 # to place the new disk - fail the module

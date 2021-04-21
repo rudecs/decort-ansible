@@ -203,7 +203,7 @@ def decort_osimage_package_facts(arg_osimage_facts, arg_check_mode=False):
     ret_dict['size'] = arg_osimage_facts['size']
     ret_dict['type'] = arg_osimage_facts['type']
     # ret_dict['arch'] = arg_osimage_facts['architecture']
-    ret_dict['sep_id'] = arg_osimage_facts['sepid']
+    ret_dict['sep_id'] = arg_osimage_facts['sepId']
     ret_dict['pool'] = arg_osimage_facts['pool']
     ret_dict['state'] = arg_osimage_facts['status']
 

@@ -272,7 +272,7 @@ class DecortController(object):
             # never be executed
             return False
 
-        req_url = self.controller_url + "/restmachine/cloudapi/accounts/list"
+        req_url = self.controller_url + "/restmachine/cloudapi/account/list"
         req_header = dict(Authorization="bearer {}".format(arg_jwt),)
 
         try:
@@ -316,7 +316,7 @@ class DecortController(object):
             self.amodule.fail_json(**self.result)
             return False
 
-        req_url = self.controller_url + "/restmachine/cloudapi/users/authenticate"
+        req_url = self.controller_url + "/restmachine/cloudapi/user/authenticate"
         req_data = dict(username=self.user,
                         password=self.password,)
 
@@ -1190,11 +1190,11 @@ class DecortController(object):
     # OS image manipulation methods
     ###################################
     def _image_get_by_id(self, image_id):
-        # TODO: update once cloudapi/images/get is implemented, see ticket #2963
+        # TODO: update once cloudapi/image/get is implemented, see ticket #2963
 
         api_params = dict(imageId=image_id,
                           showAll=False)
-        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/images/get", api_params)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/image/get", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         ret_image_dict = json.loads(api_resp.content.decode('utf8'))
 
@@ -1229,7 +1229,7 @@ class DecortController(object):
         if image_id > 0:
             ret_image_id, ret_image_dict = self._image_get_by_id(image_id)
             if ( ret_image_id and 
-                (sepid == 0 or sepid == ret_image_dict['sepid']) and
+                (sepid == 0 or sepid == ret_image_dict['sepId']) and
                 (pool == "" or pool == ret_image_dict['pool']) ):
                     return ret_image_id, ret_image_dict
         else:
@@ -1243,7 +1243,7 @@ class DecortController(object):
                 validated_acc_id = rg_facts['accountId']
 
             api_params = dict(accountId=validated_acc_id)
-            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/images/list", api_params)
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/image/list", api_params)
             # On success the above call will return here. On error it will abort execution by calling fail_json.
             images_list = json.loads(api_resp.content.decode('utf8'))
             for image_record in images_list:
@@ -1253,7 +1253,7 @@ class DecortController(object):
                         return image_record['id'], image_record
                     # if positive SEP ID and/or non-emtpy pool name are passed, match by them
                     full_match = True
-                    if sepid > 0 and sepid != image_record['sepid']:
+                    if sepid > 0 and sepid != image_record['sepId']:
                         full_match = False
                     if pool != "" and pool != image_record['pool']:
                         full_match = False
@@ -1380,7 +1380,7 @@ class DecortController(object):
                 self.amodule.fail_json(**self.result)
             # try to locate RG by name - start with getting all RGs IDs within the specified account
             api_params['accountId'] = arg_account_id
-            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/accounts/get", api_params)
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/get", api_params)
             if api_resp.status_code == 200: 
                 account_specs = json.loads(api_resp.content.decode('utf8'))
                 api_params.pop('accountId')
@@ -1633,12 +1633,12 @@ class DecortController(object):
 
         if account_name == "":
             api_params['accountId'] = account_id
-            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/accounts/get", api_params)
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/get", api_params)
             if api_resp.status_code == 200:
                 account_details = json.loads(api_resp.content.decode('utf8'))
                 return account_details['id'], account_details
         else:
-            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/accounts/list", api_params)
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/list", api_params)
             if api_resp.status_code == 200:
                 # Parse response to see if a account matching arg_account_name is found in the output
                 # If it is found, assign its ID to the return variable and copy dictionary with the facts
@@ -1648,7 +1648,7 @@ class DecortController(object):
                         # get detailed information about the account from "accounts/get" call as 
                         # "accounts/list" does not return all necessary fields
                         api_params['accountId'] = runner['id']
-                        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/accounts/get", api_params)
+                        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/get", api_params)
                         if api_resp.status_code == 200:
                             account_details = json.loads(api_resp.content.decode('utf8'))
                             return account_details['id'], account_details
@@ -2147,7 +2147,7 @@ class DecortController(object):
                                   "was requested.").format(vins_dict['id'],vins_dict['name'])
             return
 
-        if not vins_dict['rgid']:
+        if not vins_dict['rgId']:
             # this ViNS exists at account level - no updates are possible
             self.result['warning'] = ("vins_update(): no update is possible for ViNS ID {} "
                                       "as it exists at account level.").format(vins_dict['id'])
@@ -2361,10 +2361,10 @@ class DecortController(object):
         api_params = dict(accountId=account_id,
                           gid=target_gid,
                           name=disk_name,
-                          description=desc,
+                          desc=desc,
                           size=size,
                           type='D',
-                          sep_id=sep_id,)
+                          sepId=sep_id,)
         if pool_name != "":
             api_params['pool'] = pool_name
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/create", api_params)
