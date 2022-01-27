@@ -77,8 +77,8 @@ options:
         - Architecture of the KVM VM. DECORT supports KVM hosts based on Intel x86 and IBM PowerPC hardware.
         - This parameter is used when new KVM VM is created and ignored for all other operations.
         - Module may fail if your DECORT installation does not have physical nodes of specified architecture.
-        default: KVM_X86
-        choices: [ KVM_X86, KVM_PPC ]
+        default: X86_64
+        choices: [ X86_64, PPC64_LE ]
         required: yes
     authenticator:
         description:
@@ -439,8 +439,8 @@ class decort_kvmvm(DecortController):
                                                                      check_state=False)
 
         if self.comp_id:
-            if self.comp_info['status'] != 'DESTROYED' and self.comp_info['arch'] not in ["KVM_X86", "KVM_PPC"]:
-                # If we found a Compute in a non-DESTROYED state and it is not of type KVM_*, abort the module
+            if self.comp_info['status'] != 'DESTROYED' and self.comp_info['arch'] not in ["X86_64", "PPC64_LE"]:
+                # If we found a Compute in a non-DESTROYED state and it is not of type valid arch, abort the module
                 self.result['failed'] = True
                 self.result['msg'] = ("Compute ID {} architecture '{}' is not supported by "
                                       "decort_kvmvm module.").format(self.comp_id, 
@@ -500,7 +500,7 @@ class decort_kvmvm(DecortController):
         self.check_amodule_argument('cpu')
         self.check_amodule_argument('ram')
 
-        if self.amodule.params['arch'] not in ["KVM_X86", "KVM_PPC"]:
+        if self.amodule.params['arch'] not in ["X86_64", "PPC64_LE"]:
             self.result['failed'] = True
             self.result['msg'] = ("Unsupported architecture '{}' is specified for "
                                   "KVM VM create.").format(self.amodule.params['arch'])
@@ -743,7 +743,7 @@ class decort_kvmvm(DecortController):
                             required=False,
                             fallback=(env_fallback, ['DECORT_APP_SECRET']),
                             no_log=True),
-            arch=dict(type='str', choices=['KVM_X86', 'KVM_PPC'], default='KVM_X86'),
+            arch=dict(type='str', choices=['X86_64', 'PPC64_LE'], default='X86_64'),
             authenticator=dict(type='str',
                                required=True,
                                choices=['legacy', 'oauth2', 'jwt']),

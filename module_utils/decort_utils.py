@@ -769,8 +769,8 @@ class DecortController(object):
 
         @param (int) rg_id: ID of the RG where the VM will be provisioned.
         @param (string) comp_name: that specifies the name of the VM.
-        @param (string) arch: hardware architecture of KVM VM. Supported values are: "KVM_X86" for Intel x86
-        and "KVM_PPC" for IBM PowerPC.
+        @param (string) arch: hardware architecture of KVM VM. Supported values are: "X86_64" for Intel x86
+        and "PPC64_LE" for IBM PowerPC.
         @param (int) cpu: how many virtual CPUs to allocate.
         @param (int) ram: volume of RAM in MB to allocate (i.e. pass 4096 to allocate 4GB RAM).
         @param (int) boot_disk: boot disk size in GB.
@@ -792,9 +792,9 @@ class DecortController(object):
             return 0
 
         api_url=""
-        if arch == "KVM_X86":
+        if arch == "X86_64":
             api_url = "/restmachine/cloudapi/kvmx86/create"
-        elif arch == "KVM_PPC":
+        elif arch == "PPC64_LE":
             api_url = "/restmachine/cloudapi/kvmppc/create"
         else:
             self.result['failed'] = True
@@ -1380,12 +1380,12 @@ class DecortController(object):
                 self.amodule.fail_json(**self.result)
             # try to locate RG by name - start with getting all RGs IDs within the specified account
             api_params['accountId'] = arg_account_id
-            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/get", api_params)
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/listRG", api_params)
             if api_resp.status_code == 200: 
                 account_specs = json.loads(api_resp.content.decode('utf8'))
                 api_params.pop('accountId')
-                for rg_id in account_specs['rgs']:
-                    got_id, got_specs = self._rg_get_by_id(rg_id)
+                for rg_item in account_specs:
+                    got_id, got_specs = self._rg_get_by_id(rg_item['id'])
                     if got_id and got_specs['name'] == arg_rg_name:
                         # name matches
                         if not arg_check_state or got_specs['status'] not in RG_INVALID_STATES:
