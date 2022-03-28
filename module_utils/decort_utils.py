@@ -40,6 +40,7 @@ import requests
 
 from ansible.module_utils.basic import AnsibleModule
 
+
 #
 # TODO: the following functionality to be implemented and/or tested
 # 4) workflow callbacks
@@ -205,7 +206,7 @@ class DecortController(object):
                         client_id=self.app_id,
                         client_secret=self.app_secret,
                         response_type="id_token",
-                        validity=3600,)
+                        validity=3600, )
         # TODO: Need standard code snippet to handle server timeouts gracefully
         # Consider a few retries before giving up or use requests.Session & requests.HTTPAdapter
         # see https://stackoverflow.com/questions/15431044/can-i-set-max-retries-for-requests-request
@@ -273,7 +274,7 @@ class DecortController(object):
             return False
 
         req_url = self.controller_url + "/restmachine/cloudapi/account/list"
-        req_header = dict(Authorization="bearer {}".format(arg_jwt),)
+        req_header = dict(Authorization="bearer {}".format(arg_jwt), )
 
         try:
             api_resp = requests.post(req_url, headers=req_header, verify=self.verify_ssl)
@@ -318,7 +319,7 @@ class DecortController(object):
 
         req_url = self.controller_url + "/restmachine/cloudapi/user/authenticate"
         req_data = dict(username=self.user,
-                        password=self.password,)
+                        password=self.password, )
 
         try:
             api_resp = requests.post(req_url, data=req_data, verify=self.verify_ssl)
@@ -388,7 +389,8 @@ class DecortController(object):
                 return None  # actually, this directive will never be executed as fail_json aborts the script
             except requests.exceptions.Timeout:
                 self.result['failed'] = True
-                self.result['msg'] = "Timeout when trying to connect to '{}' when calling DECORT API.".format(api_resp.url)
+                self.result['msg'] = "Timeout when trying to connect to '{}' when calling DECORT API.".format(
+                    api_resp.url)
                 self.amodule.fail_json(**self.result)
                 return None
 
@@ -536,22 +538,22 @@ class DecortController(object):
                 if disk['id'] not in new_data_disks:
                     detach_list.append(disk['id'])
 
-        attach_list = [ did for did in new_data_disks if did not in current_list ]
+        attach_list = [did for did in new_data_disks if did not in current_list]
 
         for did in detach_list:
-            api_params = dict(computeId = comp_dict['id'], diskId=did)
+            api_params = dict(computeId=comp_dict['id'], diskId=did)
             self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/diskDetach", api_params)
             # On success the above call will return here. On error it will abort execution by calling fail_json.
             self.result['changed'] = True
 
         for did in attach_list:
-            api_params = dict(computeId = comp_dict['id'], diskId=did)
+            api_params = dict(computeId=comp_dict['id'], diskId=did)
             self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/diskAttach", api_params)
             # On success the above call will return here. On error it will abort execution by calling fail_json.
             self.result['changed'] = True
 
         self.result['failed'] = False
-        
+
         return
 
     def compute_delete(self, comp_id, permanently=False):
@@ -572,7 +574,7 @@ class DecortController(object):
             return
 
         api_params = dict(computeId=comp_id,
-                          permanently=permanently,)
+                          permanently=permanently, )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -593,7 +595,7 @@ class DecortController(object):
         ret_comp_dict = None
         ret_rg_id = 0
 
-        api_params = dict(computeId=comp_id,)
+        api_params = dict(computeId=comp_id, )
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/get", api_params)
         if api_resp.status_code == 200:
             ret_comp_id = comp_id
@@ -604,7 +606,6 @@ class DecortController(object):
                                       "response {}.").format(comp_id, api_resp.status_code, api_resp.reason)
 
         return ret_comp_id, ret_comp_dict, ret_rg_id
-
 
     def compute_find(self, comp_id,
                      comp_name="", rg_id=0,
@@ -652,21 +653,22 @@ class DecortController(object):
             # Therefore, RG ID cannot be zero and compute name cannot be empty.
             if not rg_id and comp_name == "":
                 self.result['failed'] = True
-                self.result['msg'] = "compute_find(): cannot find Compute by name when either name is empty or RG ID is zero."
+                self.result[
+                    'msg'] = "compute_find(): cannot find Compute by name when either name is empty or RG ID is zero."
                 self.amodule.fail_json(**self.result)
                 # fail the module - exit
 
-            api_params = dict(includedeleted=True,)
+            api_params = dict(includedeleted=True, )
             api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/list", api_params)
             if api_resp.status_code == 200:
                 comp_list = json.loads(api_resp.content.decode('utf8'))
             else:
                 self.result['failed'] = True
                 self.result['msg'] = ("compute_find(): failed to get list Computes. HTTP code {}, "
-                                        "response {}.").format(api_resp.status_code, api_resp.reason)
+                                      "response {}.").format(api_resp.status_code, api_resp.reason)
                 self.amodule.fail_json(**self.result)
                 # fail the module - exit
-            
+
             # if we have validated RG ID at this point, look up Compute by name in this RG
             # rg.vms list contains IDs of compute instances registered with this RG until compute is
             # destroyed. So we may see here computes in "active" and DELETED states.
@@ -753,11 +755,11 @@ class DecortController(object):
             self.result['failed'] = False
             self.result['warning'] = ("compute_powerstate(): no power state change required for Compute ID {} from its "
                                       "current state '{}' to desired state '{}'.").format(comp_facts['id'],
-                                                                                      comp_facts['techStatus'],
-                                                                                      target_state)
+                                                                                          comp_facts['techStatus'],
+                                                                                          target_state)
         return
 
-    def kvmvm_provision(self, rg_id, 
+    def kvmvm_provision(self, rg_id,
                         comp_name, arch,
                         cpu, ram,
                         boot_disk, image_id,
@@ -791,7 +793,7 @@ class DecortController(object):
                                   "was requested.").format(comp_name, rg_id)
             return 0
 
-        api_url=""
+        api_url = ""
         if arch == "X86_64":
             api_url = "/restmachine/cloudapi/kvmx86/create"
         elif arch == "PPC64_LE":
@@ -808,7 +810,7 @@ class DecortController(object):
                           imageId=image_id,
                           bootDisk=boot_disk,
                           start=start_on_create,  # start_machine parameter requires DECORT API ver 3.3.1 or higher
-                          netType="NONE") # we create VM without any network connections
+                          netType="NONE")  # we create VM without any network connections
         if userdata:
             api_params['userdata'] = json.dumps(userdata)  # we need to pass a string object as "userdata" 
 
@@ -864,7 +866,7 @@ class DecortController(object):
         for repair in new_networks:
             repair['id'] = int(repair['id'])
 
-        api_params = dict(accountId = comp_dict['accountId'])
+        api_params = dict(accountId=comp_dict['accountId'])
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/search", api_params)
         vins_list = json.loads(api_resp.content.decode('utf8'))
         #
@@ -879,7 +881,8 @@ class DecortController(object):
         #    return
 
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/extnet/list", api_params)
-        extnet_list = json.loads(api_resp.content.decode('utf8')) # list of dicts: "name" holds "NET_ADDR/NETMASK", "id" is ID
+        extnet_list = json.loads(
+            api_resp.content.decode('utf8'))  # list of dicts: "name" holds "NET_ADDR/NETMASK", "id" is ID
         #
         # Empty extnet_list does not constitute error condition, so we should not fail the module in 
         # this case. Therefore the following code fragment is commented out.
@@ -891,15 +894,15 @@ class DecortController(object):
         #    return
 
         # Prepare the lists of network interfaces for the compute instance:
-        vins_iface_list = [] # will contain dict(id=<int>, ipAddress=<str>, mac=<str>) for ifaces connected to ViNS(es)
-        enet_iface_list = [] # will contain dict(id=<int>, ipAddress=<str>, mac=<str>) for ifaces connected to Ext net(s)
+        vins_iface_list = []  # will contain dict(id=<int>, ipAddress=<str>, mac=<str>) for ifaces connected to ViNS(es)
+        enet_iface_list = []  # will contain dict(id=<int>, ipAddress=<str>, mac=<str>) for ifaces connected to Ext net(s)
         for iface in comp_dict['interfaces']:
             if iface['connType'] == 'VXLAN':
                 for vrunner in vins_list:
                     if vrunner['vxlanId'] == iface['connId']:
                         iface_data = dict(id=vrunner['id'],
-                                        ipAddress=iface['ipAddress'],
-                                        mac=iface['mac'])
+                                          ipAddress=iface['ipAddress'],
+                                          mac=iface['mac'])
                         vins_iface_list.append(iface_data)
             elif iface['connType'] == 'VLAN':
                 ip_addr = netaddr.IPAddress(iface['ipAddress'])
@@ -910,8 +913,8 @@ class DecortController(object):
                     ip_extnet = netaddr.IPNetwork(erunner['ipcidr'])
                     if ip_addr.value >= ip_extnet.first and ip_addr.value <= ip_extnet.last:
                         iface_data = dict(id=erunner['id'],
-                                        ipAddress=iface['ipAddress'],
-                                        mac=iface['mac'])
+                                          ipAddress=iface['ipAddress'],
+                                          mac=iface['mac'])
                         enet_iface_list.append(iface_data)
 
         # If at this point compt_dict["interfaces"] lists some interfaces, but neither vins_iface_list
@@ -921,55 +924,55 @@ class DecortController(object):
         if len(comp_dict['interfaces']) and (not len(vins_iface_list) and not len(enet_iface_list)):
             self.result['failed'] = True
             self.result['msg'] = ("compute_networks() no match between {} interface(s) of Compute ID {}"
-                                "and available {} ViNS(es) or {} ExtNet(s).").format(len(comp_dict['interfaces']),
-                                                                                     comp_dict['id'], 
-                                                                                     len(vins_list),
-                                                                                     len(extnet_list))
+                                  "and available {} ViNS(es) or {} ExtNet(s).").format(len(comp_dict['interfaces']),
+                                                                                       comp_dict['id'],
+                                                                                       len(vins_list),
+                                                                                       len(extnet_list))
             return
 
-        vins_id_list = [ rec['id'] for rec in vins_iface_list ]
+        vins_id_list = [rec['id'] for rec in vins_iface_list]
 
-        enet_id_list = [ rec['id'] for rec in enet_iface_list ]
+        enet_id_list = [rec['id'] for rec in enet_iface_list]
 
         # Build attach list by looking for ViNS/Ext net IDs that appear in new_networks, but do not appear in current lists
-        attach_list = [] # attach list holds both ViNS and Ext Net attachment specs, as API handles them the same way
+        attach_list = []  # attach list holds both ViNS and Ext Net attachment specs, as API handles them the same way
         for netrunner in new_networks:
-            if netrunner['type'] == 'VINS' and ( netrunner['id'] not in vins_id_list ):
+            if netrunner['type'] == 'VINS' and (netrunner['id'] not in vins_id_list):
                 net2attach = dict(computeId=comp_dict['id'],
-                                netType='VINS',
-                                netId=netrunner['id'],
-                                ipAddr=netrunner.get('ip_addr', ""))
+                                  netType='VINS',
+                                  netId=netrunner['id'],
+                                  ipAddr=netrunner.get('ip_addr', ""))
                 attach_list.append(net2attach)
-            elif netrunner['type'] == 'EXTNET' and ( netrunner['id'] not in enet_id_list ):
+            elif netrunner['type'] == 'EXTNET' and (netrunner['id'] not in enet_id_list):
                 net2attach = dict(computeId=comp_dict['id'],
-                                netType='EXTNET',
-                                netId=netrunner['id'],
-                                ipAddr=netrunner.get('ip_addr', ""))
+                                  netType='EXTNET',
+                                  netId=netrunner['id'],
+                                  ipAddr=netrunner.get('ip_addr', ""))
                 attach_list.append(net2attach)
-        
+
         # detach is meaningful only if compute's interfaces list was not empty
         if vins_id_list or enet_id_list:
             # Build detach list by looking for ViNS/Ext net IDs that appear in current lists, but do not appear in new_networks
-            detach_list = [] # detach list holds both ViNS and Ext Net detachment specs, as API handles them the same way
+            detach_list = []  # detach list holds both ViNS and Ext Net detachment specs, as API handles them the same way
 
-            target_list = [ rec['id'] for rec in new_networks if rec['type'] == 'VINS' ]
+            target_list = [rec['id'] for rec in new_networks if rec['type'] == 'VINS']
 
             for netrunner in vins_iface_list:
                 if netrunner['id'] not in target_list:
                     net2detach = dict(computeId=comp_dict['id'],
-                                    ipAddr=netrunner['ipAddress'],
-                                    mac=netrunner['mac'])
+                                      ipAddr=netrunner['ipAddress'],
+                                      mac=netrunner['mac'])
                     detach_list.append(net2detach)
 
-            target_list = [ rec['id'] for rec in new_networks if rec['type'] == 'EXTNET' ]
+            target_list = [rec['id'] for rec in new_networks if rec['type'] == 'EXTNET']
 
             for netrunner in enet_iface_list:
                 if netrunner['id'] not in target_list:
                     net2detach = dict(computeId=comp_dict['id'],
-                                    ipAddr=netrunner['ipAddress'],
-                                    mac=netrunner['mac'])
+                                      ipAddr=netrunner['ipAddress'],
+                                      mac=netrunner['mac'])
                     detach_list.append(net2detach)
-                
+
             for api_params in detach_list:
                 self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/netDetach", api_params)
                 # On success the above call will return here. On error it will abort execution by calling fail_json.
@@ -1093,8 +1096,8 @@ class DecortController(object):
         if not new_cpu and not new_ram:
             # if both are 0 or Null - return immediately, as user did not mean to manage size
             self.result['failed'] = False
-            self.result['warning'] =("compute_resize: new CPU count and RAM size are both zero for Compute ID {}"
-                                     " - nothing to do.").format(comp_dict['id'])
+            self.result['warning'] = ("compute_resize: new CPU count and RAM size are both zero for Compute ID {}"
+                                      " - nothing to do.").format(comp_dict['id'])
             return
 
         if not new_cpu:
@@ -1104,17 +1107,17 @@ class DecortController(object):
 
         # stupid hack?
         if new_ram > 1 and new_ram < 512:
-            new_ram = new_ram*1024
+            new_ram = new_ram * 1024
 
         if comp_dict['cpus'] == new_cpu and comp_dict['ram'] == new_ram:
             # no need to call API in this case, as requested size is not different from the current one
             self.result['failed'] = False
-            self.result['warning'] =("compute_resize: new CPU count and RAM size are the same for Compute ID {}"
-                                     " - nothing to do.").format(comp_dict['id'])
+            self.result['warning'] = ("compute_resize: new CPU count and RAM size are the same for Compute ID {}"
+                                      " - nothing to do.").format(comp_dict['id'])
             return
 
         if ((comp_dict['cpus'] > new_cpu or comp_dict['ram'] > new_ram) and
-             comp_dict['status'] in INVALID_STATES_FOR_HOT_DOWNSIZE):
+                comp_dict['status'] in INVALID_STATES_FOR_HOT_DOWNSIZE):
             while wait_for_state_change:
                 time.sleep(5)
                 fresh_comp_dict = self.compute_find(arg_vm_id=comp_dict['id'])
@@ -1125,15 +1128,15 @@ class DecortController(object):
             if not wait_for_state_change:
                 self.result['failed'] = True
                 self.result['msg'] = ("compute_resize(): downsize of Compute ID {} from CPU:RAM {}:{} to {}:{} was "
-                                      "requested, but its current state '{}' is incompatible with downsize operation.").\
-                                    format(comp_dict['id'],
-                                           comp_dict['cpus'], comp_dict['ram'],
-                                           new_cpu, new_ram, comp_dict['status'])
+                                      "requested, but its current state '{}' is incompatible with downsize operation."). \
+                    format(comp_dict['id'],
+                           comp_dict['cpus'], comp_dict['ram'],
+                           new_cpu, new_ram, comp_dict['status'])
                 return
 
         api_params = dict(computeId=comp_dict['id'],
                           ram=new_ram,
-                          cpu=new_cpu,)
+                          cpu=new_cpu, )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/resize", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -1200,7 +1203,6 @@ class DecortController(object):
 
         return image_id, ret_image_dict
 
-
     def image_find(self, image_id, image_name, account_id, rg_id=0, sepid=0, pool=""):
         """Locates image specified by name and returns its facts as dictionary.
         Primary use of this function is to obtain the ID of the image identified by its name and,
@@ -1228,10 +1230,10 @@ class DecortController(object):
 
         if image_id > 0:
             ret_image_id, ret_image_dict = self._image_get_by_id(image_id)
-            if ( ret_image_id and 
-                (sepid == 0 or sepid == ret_image_dict['sepId']) and
-                (pool == "" or pool == ret_image_dict['pool']) ):
-                    return ret_image_id, ret_image_dict
+            if (ret_image_id and
+                    (sepid == 0 or sepid == ret_image_dict['sepId']) and
+                    (pool == "" or pool == ret_image_dict['pool'])):
+                return ret_image_id, ret_image_dict
         else:
             validated_acc_id = account_id
             if account_id == 0:
@@ -1263,10 +1265,10 @@ class DecortController(object):
         self.result['failed'] = True
         self.result['msg'] = ("Failed to find OS image by name '{}', SEP ID {}, pool '{}' for "
                               "account ID '{}'.").format(image_name,
-                                                        sepid, pool, 
-                                                        account_id)
+                                                         sepid, pool,
+                                                         account_id)
         return 0, None
-        
+
     ###################################
     # Resource Group (RG) manipulation methods
     ###################################
@@ -1292,7 +1294,7 @@ class DecortController(object):
 
         api_params = dict(rgId=rg_id,
                           # force=True | False,
-                          permanently=permanently,)
+                          permanently=permanently, )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -1317,7 +1319,7 @@ class DecortController(object):
             self.result['msg'] = "rg_get_by_id(): zero RG ID specified."
             self.amodule.fail_json(**self.result)
 
-        api_params = dict(rgId=rg_id,)
+        api_params = dict(rgId=rg_id, )
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/get", api_params)
         if api_resp.status_code == 200:
             ret_rg_id = rg_id
@@ -1381,7 +1383,7 @@ class DecortController(object):
             # try to locate RG by name - start with getting all RGs IDs within the specified account
             api_params['accountId'] = arg_account_id
             api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/listRG", api_params)
-            if api_resp.status_code == 200: 
+            if api_resp.status_code == 200:
                 account_specs = json.loads(api_resp.content.decode('utf8'))
                 api_params.pop('accountId')
                 for rg_item in account_specs:
@@ -1402,7 +1404,6 @@ class DecortController(object):
 
         return ret_rg_id, ret_rg_dict
 
-    
     def rg_provision(self, arg_account_id, arg_rg_name, arg_username, arg_quota={}, arg_location="", arg_desc=""):
         """Provision new RG according to the specified arguments.
         If critical error occurs the embedded call to API function will abort further execution of the script
@@ -1434,7 +1435,8 @@ class DecortController(object):
         target_gid = self.gid_get(arg_location)
         if not target_gid:
             self.result['failed'] = True
-            self.result['msg'] = ("rg_provision() failed to obtain valid Grid ID for location '{}'").format(arg_location)
+            self.result['msg'] = ("rg_provision() failed to obtain valid Grid ID for location '{}'").format(
+                arg_location)
             self.amodule.fail_json(**self.result)
 
         api_params = dict(accountId=arg_account_id,
@@ -1454,7 +1456,7 @@ class DecortController(object):
                 api_params['maxCPUCapacity'] = arg_quota['cpu']
             if 'ext_ips' in arg_quota:
                 api_params['maxNumPublicIP'] = arg_quota['ext_ips']
-        
+
         if arg_desc:
             api_params['desc'] = arg_desc
 
@@ -1495,12 +1497,12 @@ class DecortController(object):
         query_key_map = dict(cpu='CU_C',
                              ram='CU_M',
                              disk='CU_D',
-                             ext_ips='CU_I',)
+                             ext_ips='CU_I', )
         set_key_map = dict(cpu='maxCPUCapacity',
                            ram='maxMemoryCapacity',
                            disk='maxVDiskCapacity',
-                           ext_ips='maxNumPublicIP',)
-        api_params = dict(rgId=arg_rg_dict['id'],)
+                           ext_ips='maxNumPublicIP', )
+        api_params = dict(rgId=arg_rg_dict['id'], )
         quota_change_required = False
 
         for new_limit in ('cpu', 'ram', 'disk', 'ext_ips'):
@@ -1543,7 +1545,7 @@ class DecortController(object):
             return
 
         api_params = dict(rgId=arg_rg_id,
-                          reason="Restored on user {} request by DECORT Ansible module.".format(self.decort_username),)
+                          reason="Restored on user {} request by DECORT Ansible module.".format(self.decort_username), )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/restore", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -1560,7 +1562,8 @@ class DecortController(object):
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "rg_state")
 
-        NOP_STATES_FOR_RG_CHANGE = ["MODELED", "DISABLING", "ENABLING", "DELETING", "DELETED", "DESTROYING", "DESTROYED"]
+        NOP_STATES_FOR_RG_CHANGE = ["MODELED", "DISABLING", "ENABLING", "DELETING", "DELETED", "DESTROYING",
+                                    "DESTROYED"]
         VALID_TARGET_STATES = ["enabled", "disabled"]
 
         if arg_rg_dict['status'] in NOP_STATES_FOR_RG_CHANGE:
@@ -1573,7 +1576,7 @@ class DecortController(object):
             self.result['failed'] = False
             self.result['warning'] = ("rg_state(): unrecognized desired state '{}' requested "
                                       "for RG ID {}. No RG state change will be done.").format(arg_desired_state,
-                                                                                            arg_rg_dict['id'])
+                                                                                               arg_rg_dict['id'])
             return
 
         if self.amodule.check_mode:
@@ -1677,7 +1680,7 @@ class DecortController(object):
                                   "requested.").format(arg_type, arg_mode, arg_vmid)
             return 0
 
-        api_params=dict(
+        api_params = dict(
             machineId=arg_vmid,
             gpu_type=arg_type,
             gpu_mode=arg_mode,
@@ -1709,7 +1712,7 @@ class DecortController(object):
                                   "requested.").format(arg_vgpuid, arg_vmid)
             return True
 
-        api_params=dict(
+        api_params = dict(
             machineId=arg_vmid,
             vgpuid=arg_vgpuid,
         )
@@ -1734,7 +1737,7 @@ class DecortController(object):
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "gpu_list")
 
-        api_params=dict(
+        api_params = dict(
             machineId=arg_vmid,
             list_destroyed=arg_list_destroyed,
         )
@@ -1749,7 +1752,7 @@ class DecortController(object):
             ret_gpu_list = json.loads(api_resp.content.decode('utf8'))
 
         return ret_gpu_list
-    
+
     ###################################
     # Workflow callback stub methods - not fully implemented yet
     ###################################
@@ -1798,7 +1801,7 @@ class DecortController(object):
         ret_gid = 0
         api_params = dict()
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/locations/list", api_params)
-        if api_resp.status_code == 200: 
+        if api_resp.status_code == 200:
             locations = json.loads(api_resp.content.decode('utf8'))
             if location_code == "" and locations:
                 ret_gid = locations[0]['gid']
@@ -1839,7 +1842,7 @@ class DecortController(object):
 
         api_params = dict(vinsId=vins_id,
                           # force=True | False,
-                          permanently=permanently,)
+                          permanently=permanently, )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -1867,7 +1870,7 @@ class DecortController(object):
             self.result['msg'] = "vins_get_by_id(): zero ViNS ID specified."
             self.amodule.fail_json(**self.result)
 
-        api_params = dict(vinsId=vins_id,)
+        api_params = dict(vinsId=vins_id, )
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/get", api_params)
         if api_resp.status_code == 200:
             ret_vins_id = vins_id
@@ -1949,12 +1952,12 @@ class DecortController(object):
                             return ret_vins_id, ret_vins_facts
                         else:
                             return 0, None
-            else: # both Account ID and RG ID are zero - fail the module
+            else:  # both Account ID and RG ID are zero - fail the module
                 self.result['failed'] = True
                 self.result['msg'] = ("vins_find(): cannot find ViNS by name '{}' "
                                       "when no account ID or RG ID is specified.").format(vins_name)
                 self.amodule.fail_json(**self.result)
-        else: # ViNS ID is 0 and ViNS name is emtpy - fail the module
+        else:  # ViNS ID is 0 and ViNS name is emtpy - fail the module
             self.result['failed'] = True
             self.result['msg'] = "vins_find(): cannot find ViNS by zero ID and empty name."
             self.amodule.fail_json(**self.result)
@@ -2055,7 +2058,7 @@ class DecortController(object):
             return
 
         api_params = dict(vinsId=vins_id,
-                          reason="Restored on user {} request by DECORT Ansible module.".format(self.decort_username),)
+                          reason="Restored on user {} request by DECORT Ansible module.".format(self.decort_username), )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/vins/restore", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -2072,7 +2075,8 @@ class DecortController(object):
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_state")
 
-        NOP_STATES_FOR_VINS_CHANGE = ["MODELED", "DISABLING", "ENABLING", "DELETING", "DELETED", "DESTROYING", "DESTROYED"]
+        NOP_STATES_FOR_VINS_CHANGE = ["MODELED", "DISABLING", "ENABLING", "DELETING", "DELETED", "DESTROYING",
+                                      "DESTROYED"]
         VALID_TARGET_STATES = ["enabled", "disabled"]
 
         if vins_dict['status'] in NOP_STATES_FOR_VINS_CHANGE:
@@ -2085,13 +2089,13 @@ class DecortController(object):
             self.result['failed'] = False
             self.result['warning'] = ("vins_state(): unrecognized desired state '{}' requested "
                                       "for ViNS ID {}. No ViNS state change will be done.").format(desired_state,
-                                                                                            vins_dict['id'])
+                                                                                                   vins_dict['id'])
             return
 
         if self.amodule.check_mode:
             self.result['failed'] = False
             self.result['msg'] = ("vins_state() in check mode: setting state of ViNS ID {}, name '{}' to "
-                                  "'{}' was requested.").format(vins_dict['id'],vins_dict['name'],
+                                  "'{}' was requested.").format(vins_dict['id'], vins_dict['name'],
                                                                 desired_state)
             return
 
@@ -2137,14 +2141,14 @@ class DecortController(object):
         recommended to update ViNS facts in the upstream code.
         """
 
-        api_params = dict(vinsId=vins_dict['id'],)
+        api_params = dict(vinsId=vins_dict['id'], )
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_update")
 
         if self.amodule.check_mode:
             self.result['failed'] = False
             self.result['msg'] = ("vins_update() in check mode: updating ViNS ID {}, name '{}' "
-                                  "was requested.").format(vins_dict['id'],vins_dict['name'])
+                                  "was requested.").format(vins_dict['id'], vins_dict['name'])
             return
 
         if not vins_dict['rgId']:
@@ -2184,7 +2188,7 @@ class DecortController(object):
                     self.result['warning'] = ("vins_update(): ViNS ID {} is already connected to ext net ID {}, "
                                               "ignore ext IP address change if any.").format(vins_dict['id'],
                                                                                              ext_net_id)
-        else: # ext_net_id = 0, i.e. connect ViNS to default network
+        else:  # ext_net_id = 0, i.e. connect ViNS to default network
             # we will connect ViNS to default network only if it is NOT connected to any ext network yet
             if not gw_config:
                 api_params['netId'] = 0
@@ -2195,7 +2199,8 @@ class DecortController(object):
                 self.result['failed'] = False
                 self.result['warning'] = ("vins_update(): ViNS ID {} is already connected to ext net ID {}, "
                                           "no reconnection to default network will be done.").format(vins_dict['id'],
-                                                                                                     gw_config['ext_net_id'])
+                                                                                                     gw_config[
+                                                                                                         'ext_net_id'])
 
         return
 
@@ -2223,7 +2228,7 @@ class DecortController(object):
 
         api_params = dict(diskId=disk_id,
                           detach=force_detach,
-                          permanently=permanently,)
+                          permanently=permanently, )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -2251,7 +2256,7 @@ class DecortController(object):
             self.result['msg'] = "disk_get_by_id(): zero Disk ID specified."
             self.amodule.fail_json(**self.result)
 
-        api_params = dict(diskId=disk_id,)
+        api_params = dict(diskId=disk_id, )
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/get", api_params)
         if api_resp.status_code == 200:
             ret_disk_id = disk_id
@@ -2278,14 +2283,15 @@ class DecortController(object):
         if no Disk found and check_state=False, so make sure to check return values in the upstream
         code accordingly.
         """
-        
+
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_find")
 
         DISK_INVALID_STATES = ["MODELED", "CREATING", "DELETING", "DESTROYING"]
 
         if self.amodule.check_mode:
             self.result['failed'] = False
-            self.result['msg'] = "disk_find() in check mode: find Disk ID {} / name '{}' was requested.".format(disk_id, disk_name)
+            self.result['msg'] = "disk_find() in check mode: find Disk ID {} / name '{}' was requested.".format(disk_id,
+                                                                                                                disk_name)
             return
 
         ret_disk_id = 0
@@ -2314,12 +2320,12 @@ class DecortController(object):
                             return runner['id'], runner
                 else:
                     return 0, None
-            else: # we are missing meaningful account_id - fail the module
+            else:  # we are missing meaningful account_id - fail the module
                 self.result['failed'] = True
                 self.result['msg'] = ("disk_find(): cannot find Disk by name '{}' "
                                       "when no account ID specified.").format(disk_name)
                 self.amodule.fail_json(**self.result)
-        else: # Disk ID is 0 and Disk name is emtpy - fail the module
+        else:  # Disk ID is 0 and Disk name is emtpy - fail the module
             self.result['failed'] = True
             self.result['msg'] = "disk_find(): cannot find Disk by zero ID and empty name."
             self.amodule.fail_json(**self.result)
@@ -2348,7 +2354,8 @@ class DecortController(object):
 
         if self.amodule.check_mode:
             self.result['failed'] = False
-            self.result['msg'] = "disk_provision() in check mode: create Disk name '{}' was requested.".format(disk_name)
+            self.result['msg'] = "disk_provision() in check mode: create Disk name '{}' was requested.".format(
+                disk_name)
             return 0
 
         target_gid = self.gid_get(location)
@@ -2364,7 +2371,7 @@ class DecortController(object):
                           desc=desc,
                           size=size,
                           type='D',
-                          sepId=sep_id,)
+                          sepId=sep_id, )
         if pool_name != "":
             api_params['pool'] = pool_name
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/create", api_params)
@@ -2400,13 +2407,14 @@ class DecortController(object):
 
         if not new_size:
             self.result['failed'] = False
-            self.result['warning'] = "disk_resize(): zero size requested for Disk ID {} - ignoring.".format(disk_facts['id'])
+            self.result['warning'] = "disk_resize(): zero size requested for Disk ID {} - ignoring.".format(
+                disk_facts['id'])
             return
 
         if new_size < disk_facts['sizeMax']:
             self.result['failed'] = True
             self.result['msg'] = ("disk_resize(): downsizing Disk ID {} is not allowed - current "
-                                  "size {}, requeste size {}.").format(disk_facts['id'], 
+                                  "size {}, requeste size {}.").format(disk_facts['id'],
                                                                        disk_facts['sizeMax'], new_size)
             return
 
@@ -2444,14 +2452,13 @@ class DecortController(object):
             return
 
         api_params = dict(diskId=disk_id,
-                          reason="Restored on user {} request by DECORT Ansible module.".format(self.decort_username),)
+                          reason="Restored on user {} request by DECORT Ansible module.".format(self.decort_username), )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/restore", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
         self.result['changed'] = True
         return
 
-    
     ##############################
     #
     # Port Forward rules management
@@ -2519,14 +2526,15 @@ class DecortController(object):
             ret_rules = self._pfw_get(comp_facts['id'], vins_facts['id'])
             return ret_rules
 
-        iface_ipaddr = "" # keep IP address associated with Compute's connection to this ViNS - need this for natRuleDel API
+        iface_ipaddr = ""  # keep IP address associated with Compute's connection to this ViNS - need this for natRuleDel API
         for iface in comp_facts['interfaces']:
             if iface['connType'] == 'VXLAN' and iface['connId'] == vins_facts['vxlanId']:
                 iface_ipaddr = iface['ipAddress']
                 break
         else:
             decon.result['failed'] = True
-            decon.result['msg'] = "Compute ID {} is not connected to ViNS ID {}.".format(comp_facts['id'], vins_facts['id'])
+            decon.result['msg'] = "Compute ID {} is not connected to ViNS ID {}.".format(comp_facts['id'],
+                                                                                         vins_facts['id'])
             return ret_rules
 
         existing_rules = []
@@ -2574,9 +2582,9 @@ class DecortController(object):
                 rule['local_port'] = rule['public_port_start']
             for runner in existing_rules:
                 if (runner['publicPortStart'] == rule['public_port_start'] and
-                    runner['publicPortEnd'] == rule_port_end and
-                    runner['localPort'] == rule['local_port'] and
-                    runner['protocol'] == rule['proto']):
+                        runner['publicPortEnd'] == rule_port_end and
+                        runner['localPort'] == rule['local_port'] and
+                        runner['protocol'] == rule['proto']):
                     rule['action'] = 'keep'
                     break
             if rule['action'] == 'add':
@@ -2594,9 +2602,9 @@ class DecortController(object):
             for runner in new_rules:
                 runner_port_end = runner.get('public_port_end', runner['public_port_start'])
                 if (rule['publicPortStart'] == runner['public_port_start'] and
-                    rule['publicPortEnd'] == runner_port_end and
-                    rule['localPort'] == runner['local_port'] and
-                    rule['protocol'] == runner['proto']):
+                        rule['publicPortEnd'] == runner_port_end and
+                        rule['localPort'] == runner['local_port'] and
+                        rule['protocol'] == runner['proto']):
                     rule['action'] = 'keep'
                     break
             if rule['action'] == 'del':
@@ -2641,3 +2649,256 @@ class DecortController(object):
 
         ret_rules = self._pfw_get(comp_facts['id'], vins_facts['id'])
         return ret_rules
+
+    def _k8s_get_by_id(self, k8s_id):
+        """Helper function that locates k8s by ID and returns k8s facts.
+
+        @param (int) k8s_id: ID of the k8s to find and return facts for.
+
+        @return: k8s ID and a dictionary of k8s facts as provided by rg/get API call. Note that if it fails
+        to find the k8s with the specified ID, it may return 0 for ID and empty dictionary for the facts. So
+        it is suggested to check the return values accordingly.
+        """
+        ret_k8s_id = 0
+        ret_k8s_dict = dict()
+
+        if not k8s_id:
+            self.result['failed'] = True
+            self.result['msg'] = "k8s_get_by_id(): zero k8s ID specified."
+            self.amodule.fail_json(**self.result)
+
+        api_params = dict(k8sId=k8s_id, )
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/get", api_params)
+        if api_resp.status_code == 200:
+            ret_k8s_id = k8s_id
+            ret_k8s_dict = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("k8s_get_by_id(): failed to get k8s by ID {}. HTTP code {}, "
+                                      "response {}.").format(k8s_id, api_resp.status_code, api_resp.reason)
+
+        return ret_k8s_id, ret_k8s_dict
+
+    def k8s_find(self, arg_k8s_id=0, arg_k8s_name="", arg_check_state=True):
+        """Returns non zero k8s ID and a dictionary with k8s details on success, 0 and empty dictionary otherwise.
+        This method does not fail the run if k8s cannot be located by its name (arg_k8s_name), because this could be
+        an indicator of the requested k8s never existed before.
+        However, it does fail the run if k8s cannot be located by arg_k8s_id (if non zero specified) or if API errors
+        occur.
+        @param (int) arg_k8s_id: integer ID of the k8s to be found. If non-zero k8s ID is passed, account ID and k8s name
+        are ignored. However, k8s must be present in this case, as knowing its ID implies it already exists, otherwise
+        method will fail.
+        @param (string) arg_k8s_name: string that defines the name of k8s to be found. This parameter is case sensitive.
+        @param (bool) arg_check_state: tells the method to report RGs in valid states only.
+
+        @return: ID of the RG, if found. Zero otherwise.
+        @return: dictionary with k8s facts if k8s is present. Empty dictionary otherwise. None on error.
+        """
+
+        # Resource group can be in one of the following states:
+        # MODELED, CREATED, DISABLING, DISABLED, ENABLING, DELETING, DELETED, DESTROYED, DESTROYED
+        #
+        # Transient state (ending with ING) are invalid from k8s manipulation viewpoint
+        #
+
+        K8S_INVALID_STATES = ["MODELED"]
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_find")
+
+        ret_k8s_id = 0
+        api_params = dict(includedeleted=True)
+        ret_k8s_dict = None
+
+        if arg_k8s_id > 0:
+            ret_k8s_id, ret_k8s_dict = self._k8s_get_by_id(arg_k8s_id)
+            if not ret_k8s_id:
+                self.result['failed'] = True
+                self.result['msg'] = "k8s_find(): cannot find k8s by ID {}.".format(arg_k8s_id)
+                self.amodule.fail_json(**self.result)
+        elif arg_k8s_name != "":
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/list", api_params)
+            if api_resp.status_code == 200:
+                account_specs = json.loads(api_resp.content.decode('utf8'))
+                for k8s_item in account_specs:
+                    got_id, got_specs = self._k8s_get_by_id(k8s_item['id'])
+                    if got_id and got_specs['name'] == arg_k8s_name:
+                        # name matches
+                        if not arg_check_state or got_specs['status'] not in K8S_INVALID_STATES:
+                            ret_k8s_id = got_id
+                            ret_k8s_dict = got_specs
+                            break
+            # Note: we do not fail the run if k8s cannot be located by its name, because it could be a new k8s
+            # that never existed before. In this case ret_k8s_id=0 and empty ret_k8s_dict will be returned.
+        else:
+            # Both arg_k8s_id and arg_k8s_name are empty - there is no way to locate k8s in this case
+            self.result['failed'] = True
+            self.result['msg'] = "k8s_find(): either non-zero ID or a non-empty name must be specified."
+            self.amodule.fail_json(**self.result)
+
+        return ret_k8s_id, ret_k8s_dict
+
+    def k8s_state(self, arg_k8s_dict, arg_desired_state, arg_started=False):
+        """Enable or disable k8s cluster.
+
+        @param arg_k8s_dict: dictionary with the target k8s facts as returned by k8s_find(...) method or
+        .../k8s/get API call.
+        @param arg_desired_state: the desired state for this k8s cluster. Valid states are 'enabled' and 'disabled'.
+        @param arg_started: the desired tech state for this k8s cluster. Valid states are 'True' and 'False'.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_state")
+
+        NOP_STATES_FOR_K8S_CHANGE = ["MODELED", "DISABLING",
+                                     "ENABLING", "DELETING",
+                                     "DELETED", "DESTROYING",
+                                     "DESTROYED", "CREATING",
+                                     "RESTORING"]
+        VALID_TARGET_STATES = ["ENABLED", "DISABLED"]
+
+        if arg_k8s_dict['status'] in NOP_STATES_FOR_K8S_CHANGE:
+            self.result['failed'] = False
+            self.result['msg'] = ("k8s_state(): no state change possible for k8s ID {} "
+                                  "in its current state '{}'.").format(arg_k8s_dict['id'], arg_k8s_dict['status'])
+            return
+        if arg_k8s_dict['status'] not in VALID_TARGET_STATES:
+            self.result['failed'] = False
+            self.result['warning'] = ("k8s_state(): unrecognized desired state '{}' requested "
+                                      "for k8s ID {}. No k8s state change will be done.").format(arg_desired_state,
+                                                                                                 arg_k8s_dict['id'])
+            return
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("k8s_state() in check mode: setting state of k8s ID {}, name '{}' to "
+                                  "'{}' was requested.").format(arg_k8s_dict['id'], arg_k8s_dict['name'],
+                                                                arg_desired_state)
+            return
+
+        k8s_state_api = ""  # this string will also be used as a flag to indicate that API call is necessary
+        api_params = dict(k8sId=arg_k8s_dict['id'])
+        expected_state = ""
+        tech_state = ""
+        if arg_k8s_dict['status'] in ["CREATED", "ENABLED"] and arg_desired_state == 'disabled':
+            k8s_state_api = "/restmachine/cloudapi/k8s/disable"
+            expected_state = "DISABLED"
+        elif arg_k8s_dict['status'] in ["CREATED", "DISABLED"] and arg_desired_state == 'enabled':
+            k8s_state_api = "/restmachine/cloudapi/k8s/enable"
+            expected_state = "ENABLED"
+        elif arg_k8s_dict['status'] == "ENABLED" and arg_desired_state == 'enabled' and arg_started is True and arg_k8s_dict['techStatus'] == "STOPPED":
+            k8s_state_api = "/restmachine/cloudapi/k8s/start"
+            tech_state = "STARTED"
+        elif arg_k8s_dict['status'] == "ENABLED" and arg_desired_state == 'enabled' and arg_started is False and arg_k8s_dict['techStatus'] == "STARTED":
+            k8s_state_api = "/restmachine/cloudapi/k8s/stop"
+            tech_state = "STOPPED"
+        if k8s_state_api != "":
+            self.decort_api_call(requests.post, k8s_state_api, api_params)
+            # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['failed'] = False
+            self.result['changed'] = True
+            arg_k8s_dict['status'] = expected_state
+            arg_k8s_dict['started'] = tech_state
+        else:
+            self.result['failed'] = False
+            self.result['msg'] = ("k8s_state(): no state change required for k8s ID {} from current "
+                                  "state '{}' to desired state '{}'.").format(arg_k8s_dict['id'],
+                                                                              arg_k8s_dict['status'],
+                                                                              arg_desired_state)
+        return
+    def k8s_delete(self, k8s_id, permanently=False):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_delete")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = "k8s_delete() in check mode: delete Compute ID {} was requested.".format(k8s_id)
+            return
+
+        api_params = dict(k8sId=k8s_id,
+                          permanently=permanently,
+                          )
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/delete", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+    def k8s_restore(self, k8s_id ):
+        """Restores a deleted k8s cluster identified by ID.
+
+        @param k8s_id: ID of the k8s cluster to restore.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_restore")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = "k8s_restore() in check mode: restore k8s ID {} was requested.".format(k8s_id)
+            return
+
+        api_params = dict(k8sId=k8s_id)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/restore", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+    def k8s_provision(self, k8s_name,
+                      wg_name, k8ci_id,
+                      rg_id, master_count,
+                      master_cpu, master_ram,
+                      master_disk, worker_count,
+                      worker_cpu, worker_ram,
+                      worker_disk, extnet_id,
+                      with_lb, annotation, ):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_provision")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("k8s_provision() in check mode. Provision k8s '{}' in RG ID {} "
+                                  "was requested.").format(k8s_name, rg_id)
+            return 0
+
+        api_url = "/restmachine/cloudapi/k8s/create"
+        api_params = dict(name=k8s_name,
+                          rgId=rg_id,
+                          k8ciId=k8ci_id,
+                          workerGroupName=wg_name,
+                          masterNum=master_count,
+                          masterCpu=master_cpu,
+                          masterRam=master_ram,
+                          masterDisk=master_disk,
+                          workerNum=worker_count,
+                          workerCpu=worker_cpu,
+                          workerRam=worker_ram,
+                          workerDisk=worker_disk,
+                          extnetId=extnet_id,
+                          withLB=with_lb,
+                          desc=annotation,
+                          )
+        api_resp = self.decort_api_call(requests.post, api_url, api_params)
+        k8s_id = ""
+        if api_resp.status_code == 200:
+            for i in range(300):
+                api_get_url = "/restmachine/cloudbroker/tasks/get"
+                api_get_params = dict(
+                    auditId=api_resp.content.decode('utf8').replace('"', '')
+                )
+                api_get_resp = self.decort_api_call(requests.post, api_get_url, api_get_params)
+                ret_info = json.loads(api_get_resp.content.decode('utf8'))
+                if api_get_resp.status_code == 200:
+                    if ret_info['status'] in ["PROCESSING", "SCHEDULED"]:
+                        self.result['failed'] = False
+                        time.sleep(30)
+                    elif ret_info['status'] == "ERROR":
+                        self.result['failed'] = True
+                        return
+                    elif ret_info['status'] == "OK":
+                        k8s_id = ret_info['result'][0]
+                        self.result['changed'] = True
+                        return k8s_id
+                    else:
+                        k8s_id = ret_info['status']
+                else:
+                    self.result['failed'] = True
+            # Timeout
+            self.result['failed'] = True
+        else:
+            self.result['failed'] = True
+        return
