@@ -151,7 +151,7 @@ class DecortController(object):
         if self.authenticator == "jwt":
             # validate supplied JWT on the DECORT controller
             self.validate_jwt()  # this call will abort the script if validation fails
-            jwt_decoded = jwt.decode(self.jwt, verify=False)
+            jwt_decoded = jwt.decode(self.jwt, algorithms=["ES384"], options={"verify_signature": False})
             self.decort_username = jwt_decoded['username'] + "@" + jwt_decoded['iss']
         elif self.authenticator == "legacy":
             # obtain session id from the DECORT controller and thus validate the the legacy user
@@ -162,7 +162,7 @@ class DecortController(object):
             # obtain JWT from Oauth2 provider and validate on the DECORT controller
             self.obtain_oauth2_jwt()
             self.validate_jwt()  # this call will abort the script if validation fails
-            jwt_decoded = jwt.decode(self.jwt, verify=False)
+            jwt_decoded = jwt.decode(self.jwt, algorithms=["ES384"], options={"verify_signature": False})
             self.decort_username = jwt_decoded['username'] + "@" + jwt_decoded['iss']
 
         # self.run_phase = "Initializing DecortController instance complete."
