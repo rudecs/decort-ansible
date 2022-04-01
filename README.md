@@ -5,7 +5,7 @@ Note that this module may produce unreliable results when used with older DECORT
 
 Requirements:
 * Ansible 2.7 or higher
-* Python 2.6 or higher
+* Python 3.7 or higher
 * PyJWT 2.0.0 Python module or higher
 * requests Python module
 * netaddr Python module
