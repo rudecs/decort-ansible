@@ -7,7 +7,7 @@
 #
 
 #
-# Author: Sergey Shubin (sergey.shubin@digitalenergy.online)
+# Author: Aleksandr Malyavin (aleksandr.malyavin@digitalenergy.online)
 #
 
 ANSIBLE_METADATA = {'metadata_version': '1.1',
@@ -22,10 +22,10 @@ from ansible.module_utils.decort_utils import *
 
 
 def decort_k8s_package_facts(arg_k8s_facts, arg_check_mode=False):
-    """Package a dictionary of RG facts according to the decort_rg module specification. This dictionary will
+    """Package a dictionary of k8s facts according to the decort_k8s module specification. This dictionary will
     be returned to the upstream Ansible engine at the completion of the module run.
 
-    @param arg_k8s_facts: dictionary with RG facts as returned by API call to .../rg/get
+    @param arg_k8s_facts: dictionary with k8s facts as returned by API call to .../k8s/get
     @param arg_check_mode: boolean that tells if this Ansible module is run in check mode
     """
 
@@ -51,7 +51,7 @@ def decort_k8s_package_facts(arg_k8s_facts, arg_check_mode=False):
     return ret_dict
 
 def decort_k8s_parameters():
-    """Build and return a dictionary of parameters expected by decort_rg module in a form accepted
+    """Build and return a dictionary of parameters expected by decort_k8s module in a form accepted
     by AnsibleModule utility class."""
 
     return dict(
@@ -130,12 +130,8 @@ def main():
     decon = DecortController(amodule)
     k8s_id, k8s_facts = decon.k8s_find(arg_k8s_name=amodule.params['k8s_name'],
                                     arg_check_state=False)
-
     k8s_should_exist = True
 
-    #TODO check variables
-
-    #TODO check rg rss
     if k8s_id:
         if k8s_facts['status'] in ["MODELED", "DISABLING", "ENABLING", "DELETING", "DESTROYING", "CREATING",
                                    "RESTORING"] and amodule.params['state'] != "present":
