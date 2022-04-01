@@ -2655,7 +2655,7 @@ class DecortController(object):
 
         @param (int) k8s_id: ID of the k8s to find and return facts for.
 
-        @return: k8s ID and a dictionary of k8s facts as provided by rg/get API call. Note that if it fails
+        @return: k8s ID and a dictionary of k8s facts as provided by k8s/get API call. Note that if it fails
         to find the k8s with the specified ID, it may return 0 for ID and empty dictionary for the facts. So
         it is suggested to check the return values accordingly.
         """
@@ -2688,9 +2688,9 @@ class DecortController(object):
         are ignored. However, k8s must be present in this case, as knowing its ID implies it already exists, otherwise
         method will fail.
         @param (string) arg_k8s_name: string that defines the name of k8s to be found. This parameter is case sensitive.
-        @param (bool) arg_check_state: tells the method to report RGs in valid states only.
+        @param (bool) arg_check_state: tells the method to report k8s in valid states only.
 
-        @return: ID of the RG, if found. Zero otherwise.
+        @return: ID of the k8s, if found. Zero otherwise.
         @return: dictionary with k8s facts if k8s is present. Empty dictionary otherwise. None on error.
         """
 
@@ -2773,7 +2773,7 @@ class DecortController(object):
                                                                 arg_desired_state)
             return
 
-        k8s_state_api = ""  # this string will also be used as a flag to indicate that API call is necessary
+        k8s_state_api = ""  # This string will also be used as a flag to indicate that API call is necessary
         api_params = dict(k8sId=arg_k8s_dict['id'])
         expected_state = ""
         tech_state = ""
@@ -2876,7 +2876,7 @@ class DecortController(object):
         k8s_id = ""
         if api_resp.status_code == 200:
             for i in range(300):
-                api_get_url = "/restmachine/cloudbroker/tasks/get"
+                api_get_url = "/restmachine/cloudapi/tasks/get"
                 api_get_params = dict(
                     auditId=api_resp.content.decode('utf8').replace('"', '')
                 )
