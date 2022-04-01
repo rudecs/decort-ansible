@@ -148,11 +148,8 @@ def main():
                 decon.k8s_delete(k8s_id)
                 k8s_facts['status'] = 'DELETED'
                 k8s_should_exist = True
-        elif k8s_facts['status'] == "ENABLED":
-            if amodule.params['started'] is True:
-                decon.k8s_state(k8s_facts, amodule.params['state'], amodule.params['started'])
-            else:
-                decon.k8s_state(k8s_facts, amodule.params['state'], amodule.params['started'])
+        elif k8s_facts['status'] == "ENABLED" and amodule.params['started'] is True:
+            decon.k8s_state(k8s_facts, amodule.params['state'], amodule.params['started'])
         elif k8s_facts['status'] == amodule.params['state'].upper():
             decon.k8s_state(k8s_facts, amodule.params['state'])
         elif k8s_facts['status'] in ["ENABLED", "CREATED"] and amodule.params['state'] == "disabled":
