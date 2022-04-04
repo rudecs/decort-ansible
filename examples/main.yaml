@@ -188,3 +188,136 @@
        var: my_pfw.facts
     delegate_to: localhost
 
+  - name: Create k8s cluster with params
+    decort_k8s:
+      authenticator: jwt
+      jwt: "{{ token.jwt }}"
+      controller_url: "{{ decort_ctrl }}"
+      k8s_name: "k8s_cluster_name"
+      wg_name: "k8s_wg_name"
+      k8ci_id: "{{ k8ci_id }}"
+      rg_id: "{{ my_rg.facts.id }}"
+      master_count: 1
+      master_cpu: 2
+      master_ram_mb: 2048
+      master_disk_gb: 20
+      worker_count: 3
+      worker_cpu: 1
+      worker_ram_mb: 1024
+      worker_disk_gb: 20
+      extnet_id: "{{ target_ext_net_id }}"
+      with_lb: True
+      state: present
+    register: k8s
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: k8s
+    delegate_to: localhost
+
+  - name: Disable k8s cluster
+    decort_k8s:
+      authenticator: jwt
+      jwt: "{{ token.jwt }}"
+      controller_url: "{{ decort_ctrl }}"
+      k8s_name: "k8s_cluster_name"
+      wg_name: "k8s_wg_name"
+      k8ci_id: "{{ k8ci_id }}"
+      rg_id: "{{ my_rg.facts.id }}"
+      state: disabled
+    register: k8s
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: k8s
+    delegate_to: localhost
+
+  - name: Delete in trash k8s cluster
+    decort_k8s:
+      authenticator: jwt
+      jwt: "{{ token.jwt }}"
+      controller_url: "{{ decort_ctrl }}"
+      k8s_name: "k8s_cluster_name"
+      wg_name: "k8s_wg_name"
+      k8ci_id: "{{ k8ci_id }}"
+      rg_id: "{{ my_rg.facts.id }}"
+      state: absent
+      permanent: False
+    register: k8s
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: k8s
+    delegate_to: localhost
+
+  - name: Restore from trash deleted k8s cluster
+    decort_k8s:
+      authenticator: jwt
+      jwt: "{{ token.jwt }}"
+      controller_url: "{{ decort_ctrl }}"
+      k8s_name: "k8s_cluster_name"
+      wg_name: "k8s_wg_name"
+      k8ci_id: "{{ k8ci_id }}"
+      rg_id: "{{ my_rg.facts.id }}"
+      state: enabled
+    register: k8s
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: k8s
+    delegate_to: localhost
+
+  - name: Enable k8s cluster 
+    decort_k8s:
+      authenticator: jwt
+      jwt: "{{ token.jwt }}"
+      controller_url: "{{ decort_ctrl }}"
+      k8s_name: "k8s_cluster_name"
+      wg_name: "k8s_wg_name"
+      k8ci_id: "{{ k8ci_id }}"
+      rg_id: "{{ my_rg.facts.id }}"
+      state: enabled
+    register: k8s
+    delegate_to: localhost
+
+  - name: Enable k8s cluster
+    decort_k8s:
+      authenticator: jwt
+      jwt: "{{ token.jwt }}"
+      controller_url: "{{ decort_ctrl }}"
+      k8s_name: "k8s_cluster_name"
+      wg_name: "k8s_wg_name"
+      k8ci_id: "{{ k8ci_id }}"
+      rg_id: "{{ my_rg.facts.id }}"
+      state: enabled
+      started: True
+    register: k8s
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: k8s
+    delegate_to: localhost
+
+  - name: Destroy k8s cluster
+    decort_k8s:
+      authenticator: jwt
+      jwt: "{{ token.jwt }}"
+      controller_url: "{{ decort_ctrl }}"
+      k8s_name: "k8s_cluster_name"
+      wg_name: "k8s_wg_name"
+      k8ci_id: "{{ k8ci_id }}"
+      rg_id: "{{ my_rg.facts.id }}"
+      state: absent
+      permanent: True
+    register: k8s
+    delegate_to: localhost
+
+  - name: print out the result
+    debug:
+       var: k8s
+    delegate_to: localhost

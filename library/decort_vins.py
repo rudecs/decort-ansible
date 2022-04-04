@@ -284,14 +284,14 @@ def decort_vins_package_facts(arg_vins_facts, arg_check_mode=False):
     else:
         ret_dict['ext_ip_addr'] = ""
         ret_dict['ext_net_id'] = -1
-    
+
     # arg_vins_facts['vnfs']['GW']['config']
     #   ext_ip_addr -> ext_net_ip
     #   ???         -> ext_net_id
     # tech_status   -> techStatus
 
-
     return ret_dict
+
 
 def decort_vins_parameters():
     """Build and return a dictionary of parameters expected by decort_vins module in a form accepted
@@ -342,6 +342,7 @@ def decort_vins_parameters():
         workflow_context=dict(type='str', required=False),
     )
 
+
 # Workflow digest:
 # 1) authenticate to DECORT controller & validate authentication by issuing API call - done when creating DECORTController
 # 2) check if the ViNS with this id or name exists under specified account / resource group
@@ -368,12 +369,12 @@ def main():
     decon = DecortController(amodule)
 
     vins_id = 0
-    vins_level = "" # "ID" if specified by ID, "RG" - at resource group, "ACC" - at account level
-    vins_facts = None # will hold ViNS facts
+    vins_level = ""  # "ID" if specified by ID, "RG" - at resource group, "ACC" - at account level
+    vins_facts = None  # will hold ViNS facts
     validated_rg_id = 0
-    rg_facts = None # will hold RG facts
+    rg_facts = None  # will hold RG facts
     validated_acc_id = 0
-    acc_facts = None # will hold Account facts
+    acc_facts = None  # will hold Account facts
 
     if amodule.params['vins_id']:
         # expect existing ViNS with the specified ID
@@ -383,56 +384,56 @@ def main():
             decon.result['failed'] = True
             decon.result['msg'] = "Specified ViNS ID {} not found.".format(amodule.params['vins_id'])
             decon.fail_json(**decon.result)
-        vins_level="ID"
+        vins_level = "ID"
         validated_acc_id = vins_facts['accountId']
         validated_rg_id = vins_facts['rgId']
     elif amodule.params['rg_id']:
         # expect ViNS @ RG level in the RG with specified ID
-        vins_level="RG"
-        # This call to rg_find will abort the module if no RG with such ID is present 
-        validated_rg_id, rg_facts = decon.rg_find(0, # account ID set to 0 as we search for RG by RG ID
-                                    amodule.params['rg_id'], arg_rg_name="")
+        vins_level = "RG"
+        # This call to rg_find will abort the module if no RG with such ID is present
+        validated_rg_id, rg_facts = decon.rg_find(0,  # account ID set to 0 as we search for RG by RG ID
+                                                  amodule.params['rg_id'], arg_rg_name="")
         # This call to vins_find may return vins_id=0 if no ViNS found
         vins_id, vins_facts = decon.vins_find(vins_id=0, vins_name=amodule.params['vins_name'],
-                                                account_id=0, 
-                                                rg_id=amodule.params['rg_id'],
-                                                check_state=False)
+                                              account_id=0,
+                                              rg_id=amodule.params['rg_id'],
+                                              check_state=False)
         # TODO: add checks and setup ViNS presence flags accordingly
         pass
     elif amodule.params['account_id'] or amodule.params['account_name'] != "":
-        # Specified account must be present and accessible by the user, otherwise abort the module 
+        # Specified account must be present and accessible by the user, otherwise abort the module
         validated_acc_id, acc_facts = decon.account_find(amodule.params['account_name'], amodule.params['account_id'])
         if not validated_acc_id:
             decon.result['failed'] = True
             decon.result['msg'] = ("Current user does not have access to the requested account "
-                                    "or non-existent account specified.")
+                                   "or non-existent account specified.")
             decon.fail_json(**decon.result)
-        if amodule.params['rg_name'] != "": # at this point we know that rg_id=0
+        if amodule.params['rg_name'] != "":  # at this point we know that rg_id=0
             # expect ViNS @ RG level in the RG with specified name under specified account
-            # RG with the specified name must be present under the account, otherwise abort the module    
+            # RG with the specified name must be present under the account, otherwise abort the module
             validated_rg_id, rg_facts = decon.rg_find(validated_acc_id, 0, amodule.params['rg_name'])
-            if (not validated_rg_id or 
-                rg_facts['status'] in ["DESTROYING", "DESTROYED", "DELETING", "DELETED", "DISABLING", "ENABLING"]):
+            if (not validated_rg_id or
+                    rg_facts['status'] in ["DESTROYING", "DESTROYED", "DELETING", "DELETED", "DISABLING", "ENABLING"]):
                 decon.result['failed'] = True
                 decon.result['msg'] = "RG name '{}' not found or has invalid state.".format(amodule.params['rg_name'])
                 decon.fail_json(**decon.result)
             # This call to vins_find may return vins_id=0 if no ViNS with this name found under specified RG
             vins_id, vins_facts = decon.vins_find(vins_id=0, vins_name=amodule.params['vins_name'],
-                                                    account_id=0, # set to 0, as we are looking for ViNS under RG 
-                                                    rg_id=validated_rg_id,
-                                                    check_state=False)
+                                                  account_id=0,  # set to 0, as we are looking for ViNS under RG
+                                                  rg_id=validated_rg_id,
+                                                  check_state=False)
             vins_level = "RG"
             # TODO: add checks and setup ViNS presence flags accordingly
-        else: # At this point we know for sure that rg_name="" and rg_id=0
+        else:  # At this point we know for sure that rg_name="" and rg_id=0
             # So we expect ViNS @ account level
             # This call to vins_find may return vins_id=0 if no ViNS found
             vins_id, vins_facts = decon.vins_find(vins_id=0, vins_name=amodule.params['vins_name'],
-                                                    account_id=validated_acc_id, 
-                                                    rg_id=0,
-                                                    check_state=False)
+                                                  account_id=validated_acc_id,
+                                                  rg_id=0,
+                                                  check_state=False)
             vins_level = "ACC"
             # TODO: add checks and setup ViNS presence flags accordingly
-    else: 
+    else:
         # this is "invalid arguments combination" sink
         # if we end up here, it means that module was invoked with vins_id=0 and rg_id=0
         decon.result['failed'] = True
@@ -453,12 +454,12 @@ def main():
     #
     # When managing existing ViNS we need to account for both "static" and "transient"
     # status. Full range of ViNS statii is as follows:
-    # 
+    #
     # "MODELED", "CREATED", "ENABLED", "ENABLING", "DISABLED", "DISABLING", "DELETED", "DELETING", "DESTROYED", "DESTROYING"
-    # 
+    #
 
     vins_should_exist = False
-    
+
     if vins_id:
         vins_should_exist = True
         if vins_facts['status'] in ["MODELED", "DISABLING", "ENABLING", "DELETING", "DESTROYING"]:
@@ -526,7 +527,7 @@ def main():
                 # annotation - take from module arguments
                 vins_id = decon.vins_provision(vins_facts['name'],
                                                validated_acc_id, validated_rg_id,
-                                               amodule.params['ipcidr'], 
+                                               amodule.params['ipcidr'],
                                                amodule.params['ext_net_id'], amodule.params['ext_ip_addr'],
                                                amodule.params['annotation'])
                 vins_should_exist = True
@@ -559,18 +560,17 @@ def main():
             decon.check_amodule_argument('vins_name')
             # as we already have account ID and RG ID we can create ViNS and get vins_id on success
             vins_id = decon.vins_provision(amodule.params['vins_name'],
-                                            validated_acc_id, validated_rg_id,
-                                            amodule.params['ipcidr'], 
-                                            amodule.params['ext_net_id'], amodule.params['ext_ip_addr'],
-                                            amodule.params['annotation'])
-            vins_should_exist = True            
+                                           validated_acc_id, validated_rg_id,
+                                           amodule.params['ipcidr'],
+                                           amodule.params['ext_net_id'], amodule.params['ext_ip_addr'],
+                                           amodule.params['annotation'])
+            vins_should_exist = True
         elif amodule.params['state'] == 'disabled':
             decon.result['failed'] = True
             decon.result['changed'] = False
             decon.result['msg'] = ("Invalid target state '{}' requested for non-existent "
                                    "ViNS name '{}'").format(amodule.params['state'],
                                                             amodule.params['vins_name'])
-    
     #
     # conditional switch end - complete module run
     #
