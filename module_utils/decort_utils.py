@@ -24,7 +24,7 @@ NOTE: this utility library requires DECORT platform version 3.4.0 or higher.
 It is not compatible with older versions.
 
 Requirements:
-- python >= 2.6
+- python >= 3.8
 - PyJWT Python module
 - requests Python module
 - netaddr Python module
@@ -1188,6 +1188,45 @@ class DecortController(object):
                 return True
 
         return False
+    
+    def compute_affinity(self,comp_dict,tags,aff,aaff,label=""):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "compute_affinity")
+
+        api_params = dict(computeId=comp_dict['id'])
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/affinityRulesClear", api_params)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/antiAffinityRulesClear", api_params)
+        if tags:
+            for tag in tags:
+                api_params = dict(computeId=comp_dict['id'],
+                            key=tag['key'],
+                            value=tag['value'], )
+                self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/tagAdd", api_params)
+        if label:
+            api_params = dict(computeId=comp_dict['id'],
+                          affinityLabel=label,)
+            self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/affinityLabelSet", api_params)
+        if len(aff[0])>0:
+            for rule in aff:
+                api_params = dict(computeId=comp_dict['id'],
+                            key=rule['key'],
+                            value=rule['value'], 
+                            topology=rule['topology'],
+                            mode=rule['mode'],
+                            policy=rule['policy'],)
+                self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/affinityRuleAdd", api_params)
+        if len(aaff[0])>0:
+            for rule in aaff:
+                api_params = dict(computeId=comp_dict['id'],
+                            key=rule['key'],
+                            value=rule['value'], 
+                            topology=rule['topology'],
+                            mode=rule['mode'],
+                            policy=rule['policy'],)
+                self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/antiAffinityRuleAdd", api_params)     
+        
+        self.result['failed'] = False
+        self.result['changed'] = True
 
     ###################################
     # OS image manipulation methods
@@ -2678,7 +2717,12 @@ class DecortController(object):
 
         return ret_k8s_id, ret_k8s_dict
 
-    def k8s_find(self, arg_k8s_id=0, arg_k8s_name="", arg_check_state=True):
+    ##############################
+    #
+    # K8s management
+    #
+    ##############################
+    def k8s_find(self, k8s_id, k8s_name="",rg_id=0,check_state=True):
         """Returns non zero k8s ID and a dictionary with k8s details on success, 0 and empty dictionary otherwise.
         This method does not fail the run if k8s cannot be located by its name (arg_k8s_name), because this could be
         an indicator of the requested k8s never existed before.
@@ -2700,7 +2744,7 @@ class DecortController(object):
         # Transient state (ending with ING) are invalid from k8s manipulation viewpoint
         #
 
-        K8S_INVALID_STATES = ["MODELED"]
+        K8S_INVALID_STATES = ["MODELED","DESTROYED","DESTROYING"]
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_find")
 
@@ -2708,31 +2752,22 @@ class DecortController(object):
         api_params = dict(includedeleted=True)
         ret_k8s_dict = None
 
-        if arg_k8s_id > 0:
-            ret_k8s_id, ret_k8s_dict = self._k8s_get_by_id(arg_k8s_id)
+        if k8s_id:
+            ret_k8s_id, ret_k8s_dict = self._k8s_get_by_id(k8s_id)
             if not ret_k8s_id:
                 self.result['failed'] = True
-                self.result['msg'] = "k8s_find(): cannot find k8s by ID {}.".format(arg_k8s_id)
+                self.result['msg'] = "k8s_find(): cannot find k8s cluster by ID {}.".format(k8s_id)
                 self.amodule.fail_json(**self.result)
-        elif arg_k8s_name != "":
+        else:
             api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/list", api_params)
             if api_resp.status_code == 200:
-                account_specs = json.loads(api_resp.content.decode('utf8'))
-                for k8s_item in account_specs:
-                    got_id, got_specs = self._k8s_get_by_id(k8s_item['id'])
-                    if got_id and got_specs['name'] == arg_k8s_name:
-                        # name matches
-                        if not arg_check_state or got_specs['status'] not in K8S_INVALID_STATES:
-                            ret_k8s_id = got_id
-                            ret_k8s_dict = got_specs
-                            break
-            # Note: we do not fail the run if k8s cannot be located by its name, because it could be a new k8s
-            # that never existed before. In this case ret_k8s_id=0 and empty ret_k8s_dict will be returned.
-        else:
-            # Both arg_k8s_id and arg_k8s_name are empty - there is no way to locate k8s in this case
-            self.result['failed'] = True
-            self.result['msg'] = "k8s_find(): either non-zero ID or a non-empty name must be specified."
-            self.amodule.fail_json(**self.result)
+                k8s_list = json.loads(api_resp.content.decode('utf8'))
+        for k8s_item in k8s_list:
+            if k8s_item['name'] == k8s_name and k8s_item['rgId'] == rg_id:
+                if not check_state or k8s_item['status'] not in K8S_INVALID_STATES:
+                    ret_k8s_id = k8s_item['id']
+                    _, ret_k8s_dict = self._k8s_get_by_id(ret_k8s_id)
+
 
         return ret_k8s_id, ret_k8s_dict
 
@@ -2753,7 +2788,7 @@ class DecortController(object):
                                      "DESTROYED", "CREATING",
                                      "RESTORING"]
         VALID_TARGET_STATES = ["ENABLED", "DISABLED"]
-
+   
         if arg_k8s_dict['status'] in NOP_STATES_FOR_K8S_CHANGE:
             self.result['failed'] = False
             self.result['msg'] = ("k8s_state(): no state change possible for k8s ID {} "
@@ -2772,7 +2807,8 @@ class DecortController(object):
                                   "'{}' was requested.").format(arg_k8s_dict['id'], arg_k8s_dict['name'],
                                                                 arg_desired_state)
             return
-
+        if arg_desired_state == 'present':
+            arg_desired_state = 'enabled'
         k8s_state_api = ""  # This string will also be used as a flag to indicate that API call is necessary
         api_params = dict(k8sId=arg_k8s_dict['id'])
         expected_state = ""
@@ -2802,23 +2838,26 @@ class DecortController(object):
                                   "state '{}' to desired state '{}'.").format(arg_k8s_dict['id'],
                                                                               arg_k8s_dict['status'],
                                                                               arg_desired_state)
+        
         return
+
     def k8s_delete(self, k8s_id, permanently=False):
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_delete")
 
         if self.amodule.check_mode:
             self.result['failed'] = False
-            self.result['msg'] = "k8s_delete() in check mode: delete Compute ID {} was requested.".format(k8s_id)
+            self.result['msg'] = "k8s_delete() in check mode: delete K8s cluster ID {} was requested.".format(k8s_id)
             return
 
         api_params = dict(k8sId=k8s_id,
-                          permanently=permanently,
+                          permanently=False,
                           )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
         self.result['changed'] = True
         return
+
     def k8s_restore(self, k8s_id ):
         """Restores a deleted k8s cluster identified by ID.
 
@@ -2838,6 +2877,16 @@ class DecortController(object):
         self.result['failed'] = False
         self.result['changed'] = True
         return
+    
+    def k8s_enable(self,k8s_id):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_enable")
+        api_params = dict(k8sId=k8s_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/enable", api_params)
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+
     def k8s_provision(self, k8s_name,
                       wg_name, k8ci_id,
                       rg_id, master_count,
@@ -2902,3 +2951,104 @@ class DecortController(object):
         else:
             self.result['failed'] = True
         return
+
+    def k8s_workers_modify(self,arg_k8swg,arg_modwg):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_workers_modify")
+        
+        
+        if self.k8s_info['techStatus'] != "STARTED":
+            self.result['changed'] = False
+            self.result['msg'] = ("k8s_workers_modify(): Can't modify with TechStatus other then STARTED")
+            return
+        
+        wg_del_list = []
+        wg_add_list = []
+        wg_modadd_list = []
+        wg_moddel_list = []
+        wg_outer = [rec['name'] for rec in arg_modwg]
+        wg_inner = [rec['name'] for rec in arg_k8swg['k8sGroups']['workers']]
+
+        for rec in arg_k8swg['k8sGroups']['workers']:
+            if rec['name'] not in wg_outer:
+                wg_del_list.append(rec['id'])
+        for rec in arg_modwg:
+            if rec['name'] not in wg_inner:
+                wg_add_list.append(rec)
+        
+        for rec_inn in arg_k8swg['k8sGroups']['workers']:
+            for rec_out in arg_modwg:
+                if rec_inn['num'] != rec_out['num']:
+                    count = rec_inn['num']-rec_out['num']
+                    cmp_list = []
+                    if count > 0:
+                        for cmp in rec_inn['detailedInfo'][:count]:
+                            cmp_list.append(cmp['id'])
+                        wg_moddel_list.append({rec_inn['id']:cmp_list})
+                    if count < 0:
+                        wg_modadd_list.append({rec_inn['id']:abs(count)})
+
+        if wg_del_list:
+            for wgid in wg_del_list: 
+                api_params = dict(k8sId=self.k8s_id,workersGroupId=wgid)
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/workersGroupDelete", api_params)
+                self.result['changed'] = True    
+        if wg_add_list:
+            for wg in wg_add_list:
+                api_params = dict(k8sId=self.k8s_id,
+                                  name=wg['name'],
+                                  workerNum=wg['num'],
+                                  workerCpu=wg['cpu'],
+                                  workerRam=wg['ram'],
+                                  workerDisk=wg['disk'],
+                                )
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/workersGroupAdd", api_params)
+                self.result['changed'] = True
+        if wg_modadd_list:
+            for wg in wg_modadd_list:
+                for key in wg:
+                    api_params = dict(k8sId=self.k8s_id,workersGroupId=key,num=wg[key])
+                    api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/workerAdd", api_params)
+                    self.result['changed'] = True
+        if wg_moddel_list:
+            for wg in wg_moddel_list:
+                for key in wg:
+                    for cmpid in wg[key]:
+                        api_params = dict(k8sId=self.k8s_id,workersGroupId=key,workerId=cmpid)
+                        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/deleteWorkerFromGroup", api_params)
+                        self.result['changed'] = True
+        self.result['failed'] = False
+        return
+    
+    def k8s_k8ci_find(self,arg_k8ci_id):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_k8ci_find")
+        
+        api_params = dict(includeDisabled=False)
+
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8ci/list", api_params)
+        
+        if api_resp.status_code == 200:
+            ret_k8ci_list = json.loads(api_resp.content.decode('utf8'))
+            for k8ci_item in ret_k8ci_list:
+                if k8ci_item['id'] == arg_k8ci_id:
+                    break
+                else:
+                    self.result['failed'] = True
+                    self.result['msg'] = "k8s_k8ci_find(): cannot find ID."
+                    self.amodule.fail_json(**self.result)  
+        else:
+            self.result['failed'] = True
+            self.result['msg'] = ("Failed to get k8ci list HTTP code {}.").format(api_resp.status_code)
+            self.amodule.fail_json(**self.result)
+        return arg_k8ci_id
+    
+    def k8s_getConfig(self):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_getConfig")
+        
+        api_params = dict(k8sId=self.k8s_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/getConfig", api_params)
+        ret_conf = api_resp.content.decode('utf8')
+        return ret_conf
+
