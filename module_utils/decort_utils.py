@@ -1206,24 +1206,26 @@ class DecortController(object):
             api_params = dict(computeId=comp_dict['id'],
                           affinityLabel=label,)
             self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/affinityLabelSet", api_params)
-        if len(aff[0])>0:
-            for rule in aff:
-                api_params = dict(computeId=comp_dict['id'],
-                            key=rule['key'],
-                            value=rule['value'], 
-                            topology=rule['topology'],
-                            mode=rule['mode'],
-                            policy=rule['policy'],)
-                self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/affinityRuleAdd", api_params)
-        if len(aaff[0])>0:
-            for rule in aaff:
-                api_params = dict(computeId=comp_dict['id'],
-                            key=rule['key'],
-                            value=rule['value'], 
-                            topology=rule['topology'],
-                            mode=rule['mode'],
-                            policy=rule['policy'],)
-                self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/antiAffinityRuleAdd", api_params)     
+        if aff:
+            if len(aff[0])>0:
+                for rule in aff:
+                    api_params = dict(computeId=comp_dict['id'],
+                                key=rule['key'],
+                                value=rule['value'], 
+                                topology=rule['topology'],
+                                mode=rule['mode'],
+                                policy=rule['policy'],)
+                    self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/affinityRuleAdd", api_params)
+        if aaff:
+            if len(aaff[0])>0:
+                for rule in aaff:
+                    api_params = dict(computeId=comp_dict['id'],
+                                key=rule['key'],
+                                value=rule['value'], 
+                                topology=rule['topology'],
+                                mode=rule['mode'],
+                                policy=rule['policy'],)
+                    self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/antiAffinityRuleAdd", api_params)     
         
         self.result['failed'] = False
         self.result['changed'] = True
