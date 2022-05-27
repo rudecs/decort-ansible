@@ -2857,6 +2857,7 @@ class DecortController(object):
         self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
+        self.result['msg'] = "k8s_delete() K8s cluster ID {} was deleted.".format(k8s_id)
         self.result['changed'] = True
         return
 

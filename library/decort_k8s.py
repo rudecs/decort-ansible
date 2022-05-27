@@ -333,6 +333,8 @@ def main():
         if subj.k8s_should_exist:
             subj.result['facts'] = subj.package_facts(amodule.check_mode)
             amodule.exit_json(**subj.result)
+        else:
+            amodule.exit_json(**subj.result)
 
 if __name__ == "__main__":
     main()
