@@ -1,0 +1,36 @@
+---
+#
+# DECORT kvmvm module example
+#
+- hosts: ansible_master
+  tasks:
+  - name: create a VM named cloud-init_example
+    decort_kvmvm:
+      name: affinity_example
+      annotation: "VM managed by decort_kvmvm module"
+      authenticator: oauth2
+      app_id: ""                                          # Application id from SSO Digital Energy
+      app_secret: ""                                      # API key from SSO Digital Energy
+      controller_url: ""                                  #"https://mr4.digitalenergy.online"
+      rg_id:                                              # Resource group id
+      cpu: 2
+      ram: 2048
+      boot_disk: 10
+      image_name: "DECS Ubuntu 18.04 v1.2.3"              # Name of OS image
+      networks:
+        - type: VINS
+          id:                                             # VINS id
+      tags: "Ansible cloud init example"
+      aff_lable: "Affinity lable"
+      tag:
+        - key: bd
+          value: main
+      aff_rule:
+        - key: app
+          value: main
+          topology: compute
+          policy: REQUIRED
+          mode: EQ
+      state: present
+    delegate_to: localhost
+    register: simple_vm

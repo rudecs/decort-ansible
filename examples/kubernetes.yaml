@@ -1,0 +1,39 @@
+---
+#
+# DECORT k8s module example
+#
+- hosts: ansible_master
+  tasks:
+  - name: obtain JWT
+    decort_jwt:
+      oauth2_url: ""                                     #"https://sso.digitalenergy.online"
+      validity: 1200
+      verify_ssl: false
+    register: token
+    delegate_to: localhost
+
+  - name: create a VM named cloud-init_example
+    decort_k8s:
+      state: present
+      started: True
+      getConfig: True
+      authenticator: jwt
+      jwt: "{{ token.jwt }}"
+      controller_url: ""                                  #"https://mr4.digitalenergy.online"
+      name: "cluster-test"
+      rg_id:                                              # Resource group id
+      k8ci_id:                                            # k8s ci id
+      workers:
+        - name: wg1
+          ram: 1024
+          cpu: 10
+          disk: 10
+          num: 1
+        - name: wg2
+          ram: 1024
+          cpu: 10
+          disk: 10
+          num: 2
+      verify_ssl: false
+    delegate_to: localhost
+    register: kube

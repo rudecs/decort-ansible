@@ -192,6 +192,9 @@ options:
         - If I(ssh_key) is not specified, this parameter is ignored and a warning is generated.
         - This parameter is valid at VM creation time only and ignored for any operation on existing VMs.
         required: no
+    user_data:
+        description:
+        - Cloud-init User-Data, exept ssh module
     state:
         description:
         - Specify the desired state of the virtual machine at the exit of the module.
@@ -548,15 +551,18 @@ class decort_kvmvm(DecortController):
         if self.amodule.params['state'] in ('halted', 'poweredoff'):
             start_compute = False
         
-        if self.amodule.params['ssh_key'] and self.amodule.params['ssh_key_user']:
+        if self.amodule.params['ssh_key'] and self.amodule.params['ssh_key_user'] and not self.amodule.params['ci_user_data']:
             cloud_init_params = {'users': [
                 {"name": self.amodule.params['ssh_key_user'],
                     "ssh-authorized-keys": [self.amodule.params['ssh_key']],
                     "shell": '/bin/bash'}
                 ]}
+        elif self.amodule.params['ci_user_data']:
+            cloud_init_params = {}
+            for ci_param in self.amodule.params['ci_user_data']:
+                cloud_init_params.update(ci_param)
         else:
             cloud_init_params = None
-
         # if we get through here, all parameters required to create new Compute instance should be at hand
 
         # NOTE: KVM VM is created in HALTED state and must be explicitly started
@@ -595,6 +601,11 @@ class decort_kvmvm(DecortController):
         # Next manage data disks
         self.compute_data_disks(self.comp_info, self.amodule.params['data_disks'])
 
+        self.compute_affinity(self.comp_info,
+                              self.amodule.params['tag'],
+                              self.amodule.params['aff_rule'],
+                              self.amodule.params['aaff_rule'],
+                              label=self.amodule.params['affinity_label'],)
         # NOTE: see NOTE above regarding libvirt "feature" and new VMs created in HALTED state
         if self.amodule.params['state'] not in ('halted', 'poweredoff'):
             self.compute_powerstate(self.comp_info, 'started')
@@ -641,6 +652,11 @@ class decort_kvmvm(DecortController):
         self.compute_resize(self.comp_info,
                             self.amodule.params['cpu'], self.amodule.params['ram'],
                             wait_for_state_change=arg_wait_cycles)
+        self.compute_affinity(self.comp_info,
+                              self.amodule.params['tag'],
+                              self.amodule.params['aff_rule'],
+                              self.amodule.params['aaff_rule'],
+                              label=self.amodule.params['affinity_label'],)
         return
 
     def package_facts(self, check_mode=False):
@@ -774,6 +790,11 @@ class decort_kvmvm(DecortController):
             rg_name=dict(type='str', default=""),
             ssh_key=dict(type='str', required=False),
             ssh_key_user=dict(type='str', required=False),
+            tag=dict(type='list', required=False),
+            affinity_label=dict(type='str', required=False),
+            aff_rule=dict(type='list', required=False),
+            aaff_rule=dict(type='list', required=False),
+            ci_user_data=dict(type='list', required=False),
             state=dict(type='str',
                        default='present',
                        choices=['absent', 'paused', 'poweredoff', 'halted', 'poweredon', 'present', 'check']),
