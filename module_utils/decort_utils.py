@@ -2146,10 +2146,10 @@ class DecortController(object):
         expected_state = ""
 
         if vins_dict['status'] in ["CREATED", "ENABLED"] and desired_state == 'disabled':
-            rgstate_api = "/restmachine/cloudapi/vins/disable"
+            vinsstate_api = "/restmachine/cloudapi/vins/disable"
             expected_state = "DISABLED"
         elif vins_dict['status'] == "DISABLED" and desired_state == 'enabled':
-            rgstate_api = "/restmachine/cloudapi/vins/enable"
+            vinsstate_api = "/restmachine/cloudapi/vins/enable"
             expected_state = "ENABLED"
 
         if vinsstate_api != "":
@@ -2166,7 +2166,7 @@ class DecortController(object):
                                                                               desired_state)
         return
 
-    def vins_update(self, vins_dict, ext_net_id, ext_ip_addr=""):
+    def vins_update(self, vins_dict, ext_net_id, ext_ip_addr="", mgmtaddr=""):
         """Update ViNS. Currently only updates to the external network connection settings and
         external IP address assignment are implemented.
         Note that as ViNS created at account level cannot have external connections, attempt 
@@ -2190,6 +2190,11 @@ class DecortController(object):
             self.result['failed'] = False
             self.result['msg'] = ("vins_update() in check mode: updating ViNS ID {}, name '{}' "
                                   "was requested.").format(vins_dict['id'], vins_dict['name'])
+            return
+        if self.amodule.params['config_save'] and vins_dict['VNFDev']['customPrecfg']:
+            # only save config,no other modifictaion
+            self.result['changed'] = True
+            self._vins_vnf_config_save(vins_dict['VNFDev']['id'])
             return
 
         if not vins_dict['rgId']:
@@ -2242,7 +2247,78 @@ class DecortController(object):
                                           "no reconnection to default network will be done.").format(vins_dict['id'],
                                                                                                      gw_config[
                                                                                                          'ext_net_id'])
+        for iface in vins_dict['VNFDev']['interfaces']:
+            if iface['ipAddress'] == mgmtaddr:
+                if  not iface['listenSsh']:
+                    self._vins_vnf_addmgmtaddr(vins_dict['VNFDev']['id'],mgmtaddr)
+            elif mgmtaddr =="":
+                if iface['listenSsh'] and iface['name'] != "ens9":
+                    self._vins_vnf_delmgmtaddr(vins_dict['VNFDev']['id'],iface['ipAddress'])
+        
+        if self.amodule.params['custom_config']:
+            if not vins_dict['VNFDev']['customPrecfg']:
+                self._vins_vnf_config_save(vins_dict['VNFDev']['id'])
+                self._vins_vnf_customconfig_set(vins_dict['VNFDev']['id'])
+        else: 
+            if vins_dict['VNFDev']['customPrecfg']:
+                self._vins_vnf_customconfig_set(vins_dict['VNFDev']['id'],False)
+ 
+        return
 
+    def _vins_vnf_addmgmtaddr(self,dev_id,mgmtip):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_addmgmtaddr")
+        api_params = dict(devId=dev_id,ip=mgmtip)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/addMgmtAddr", api_params)
+        if api_resp.status_code == 200:
+            self.result['changed'] = True
+            self.result['failed'] = False
+        else:
+            self.result['warning'] = ("_vins_vnf_addmgmtaddr(): failed to add MGMT addr VNFID {} iface ADDR {}. HTTP code {}, "
+                                      "response {}.").format(dev_id,mgmtip,api_resp.status_code, api_resp.reason)
+        return
+    
+    def _vins_vnf_delmgmtaddr(self,dev_id,mgmtip):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_delmgmtaddr")
+        api_params = dict(devId=dev_id,ip=mgmtip)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/delMgmtAddr", api_params)
+        if api_resp.status_code == 200:
+            self.result['changed'] = True
+            self.result['failed'] = False
+        else:
+            self.result['warning'] = ("_vins_vnf_delmgmtaddr(): failed to delete MGMT addr VNFID {} iface ADDR {}. HTTP code {}, "
+                                      "response {}.").format(dev_id,mgmtip,api_resp.status_code, api_resp.reason)
+        return
+
+    def _vins_vnf_customconfig_set(self,dev_id,arg_mode=True):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_customconfig_set")
+        api_params = dict(devId=dev_id,mode=arg_mode)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/customSet", api_params)
+        if api_resp.status_code == 200:
+            self.result['changed'] = True
+            self.result['failed'] = False
+        else:
+            self.result['warning'] = ("_vins_vnf_customconfig_set(): failed to enable or disable Custom pre-config mode on the VNF device. {}. HTTP code {}, "
+                                      "response {}.").format(dev_id,api_resp.status_code, api_resp.reason)
+        return
+    
+    def _vins_vnf_config_save(self,dev_id):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_config_save")
+        api_params = dict(devId=dev_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/configSave", api_params)
+        if api_resp.status_code == 200:
+            self.result['changed'] = True
+            self.result['failed'] = False
+        else:
+            self.result['warning'] = ("_vins_vnf_config_set(): failed to Save configuration on the VNF device. {}. HTTP code {}, "
+                                      "response {}.").format(dev_id,api_resp.status_code, api_resp.reason)
+        return
+    
+    def vins_vnf_ifaceadd(self):
+        return
+    
+    def vins_vnf_ifaceremove(self):
         return
 
     ##############################
@@ -2891,12 +2967,9 @@ class DecortController(object):
         return
 
     def k8s_provision(self, k8s_name,
-                      wg_name, k8ci_id,
-                      rg_id, master_count,
+                      k8ci_id,rg_id, master_count,
                       master_cpu, master_ram,
-                      master_disk, worker_count,
-                      worker_cpu, worker_ram,
-                      worker_disk, extnet_id,
+                      master_disk, default_worker, extnet_id,
                       with_lb, annotation, ):
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "k8s_provision")
@@ -2906,20 +2979,31 @@ class DecortController(object):
             self.result['msg'] = ("k8s_provision() in check mode. Provision k8s '{}' in RG ID {} "
                                   "was requested.").format(k8s_name, rg_id)
             return 0
+        def_wg_name = default_worker['name']
+        def_wg_count = default_worker['num']
+        def_wg_cpu = default_worker['cpu']
+        def_wg_ram = default_worker['ram']
+        def_wg_disk = default_worker['disk']
+        def_wg_lab = default_worker['labels'] if "labels" in default_worker else None
+        def_wg_taints = default_worker['taints'] if "taints" in default_worker else None
+        def_wg_ann = default_worker['annotations'] if "annotations" in default_worker else None
 
         api_url = "/restmachine/cloudapi/k8s/create"
         api_params = dict(name=k8s_name,
                           rgId=rg_id,
                           k8ciId=k8ci_id,
-                          workerGroupName=wg_name,
+                          workerGroupName=def_wg_name,
                           masterNum=master_count,
                           masterCpu=master_cpu,
                           masterRam=master_ram,
                           masterDisk=master_disk,
-                          workerNum=worker_count,
-                          workerCpu=worker_cpu,
-                          workerRam=worker_ram,
-                          workerDisk=worker_disk,
+                          workerNum=def_wg_count,
+                          workerCpu=def_wg_cpu,
+                          workerRam=def_wg_ram,
+                          workerDisk=def_wg_disk,
+                          labels=def_wg_lab,
+                          taints=def_wg_taints,
+                          annotations=def_wg_ann,
                           extnetId=extnet_id,
                           withLB=with_lb,
                           desc=annotation,
@@ -2981,7 +3065,7 @@ class DecortController(object):
         
         for rec_inn in arg_k8swg['k8sGroups']['workers']:
             for rec_out in arg_modwg:
-                if rec_inn['num'] != rec_out['num']:
+                if rec_inn['num'] != rec_out['num'] and rec_out['num'] != 0:
                     count = rec_inn['num']-rec_out['num']
                     cmp_list = []
                     if count > 0:
@@ -3004,6 +3088,9 @@ class DecortController(object):
                                   workerCpu=wg['cpu'],
                                   workerRam=wg['ram'],
                                   workerDisk=wg['disk'],
+                                  labels=wg['labels'] if "labels" in wg else None,
+                                  taints=wg['taints'] if "taints" in wg else None,
+                                  annotations=wg['annotations'] if "annotations" in wg else None,
                                 )
                 api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/workersGroupAdd", api_params)
                 self.result['changed'] = True
@@ -3055,3 +3142,347 @@ class DecortController(object):
         ret_conf = api_resp.content.decode('utf8')
         return ret_conf
 
+    ##############################
+    #
+    # Bservice management
+    #
+    ##############################
+    def bservice_get_by_id(self,bs_id):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "bservice_get_by_id")
+
+        ret_bs_id = 0
+        ret_bs_dict = dict()
+
+        if not bs_id:
+            self.result['failed'] = True
+            self.result['msg'] = "bservice_get_by_id(): zero B-Service ID specified."
+            self.amodule.fail_json(**self.result)
+
+        api_params = dict(serviceId=bs_id, )
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/bservice/get", api_params)
+        if api_resp.status_code == 200:
+            ret_bs_id = bs_id
+            ret_bs_dict = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("bservice_get_by_id(): failed to get B-service by ID {}. HTTP code {}, "
+                                      "response {}.").format(bs_id, api_resp.status_code, api_resp.reason)
+
+        return ret_bs_id, ret_bs_dict
+    def _bservice_rg_list(self,acc_id,rg_id):
+        ret_bs_dict=dict()
+        api_params = dict(accountId=acc_id,rgId=rg_id )
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/bservice/list", api_params)
+        if api_resp.status_code == 200:
+            ret_bs_dict = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("bservice_rg_list(): failed to get B-service list. HTTP code {}, "
+                                      "response {}.").format(api_resp.status_code, api_resp.reason)
+        return ret_bs_dict
+    
+    def bservice_find(self,account_id,rg_id,bservice_name="",bservice_id = 0,check_state=True):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "bservice_find")
+
+        if bservice_id == 0:
+            bs_rg_list = self._bservice_rg_list(account_id,rg_id)
+            for srv in bs_rg_list:
+                if bservice_name == srv['name']:
+                    bservice_id = int(srv['id'])
+
+        if  bservice_id > 0:
+            ret_bs_id,ret_bs_dict = self.bservice_get_by_id(bservice_id)
+            return ret_bs_id,ret_bs_dict
+        else:
+            return bservice_id,None
+    
+    def bservice_provision(self,bs_name,rgid,sshuser=None,sshkey=None):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "bservice_provision")
+
+        api_url = "/cloudapi/bservice/create"
+        api_params = dict(
+            name = bs_name,
+            rgId = rgid,
+            sshUser = sshuser,
+            sshKey = sshkey,
+        )   
+        api_resp = self.decort_api_call(requests.post, api_url, api_params)
+        self.result['failed'] = False
+        self.result['changed'] = True
+        ret_bservice_id = int(api_resp.content.decode('utf8'))
+        return ret_bservice_id
+    
+    def bservice_state(self,bs_dict,desired_state,started=True):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "bservice_state")
+        
+        if desired_state == "present":
+            desired_state = "enabled"
+        
+        NOP_STATES_FOR_BS_CHANGE = ["MODELED", "DISABLING", "ENABLING", "DELETING", "DELETED", "DESTROYING",
+                                      "DESTROYED","RESTORYNG","RECONFIGURING"]
+        VALID_TARGET_STATES = ["enabled", "disabled"]
+
+        if bs_dict['status'] in NOP_STATES_FOR_BS_CHANGE:
+            self.result['failed'] = False
+            self.result['msg'] = ("bservice_state(): no state change possible for ViNS ID {} "
+                                  "in its current state '{}'.").format(bs_dict['id'], bs_dict['status'])
+            return
+
+        if desired_state not in VALID_TARGET_STATES:
+            self.result['failed'] = False
+            self.result['warning'] = ("bservice_state(): unrecognized desired state '{}' requested "
+                                      "for B-service ID {}. No B-service state change will be done.").format(desired_state,
+                                                                                                   bs_dict['id'])
+            return
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("bservice_state() in check mode: setting state of B-service ID {}, name '{}' to "
+                                  "'{}' was requested.").format(bs_dict['id'], bs_dict['name'],
+                                                                desired_state)
+            return
+
+        bsstate_api = ""  # this string will also be used as a flag to indicate that API call is necessary
+        api_params = dict(serviceId=bs_dict['id'])
+        expected_state = ""
+
+        if bs_dict['status'] in ["CREATED", "ENABLED"] and desired_state == 'disabled':
+            bsstate_api = "/restmachine/cloudapi/bservice/disable"
+            expected_state = "DISABLED"
+        elif bs_dict['status'] == "DISABLED" and desired_state == 'enabled':
+            bsstate_api = "/restmachine/cloudapi/bservice/enable"
+            expected_state = "ENABLED"
+
+        if bsstate_api != "":
+            self.decort_api_call(requests.post, bsstate_api, api_params)
+            # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['failed'] = False
+            self.result['changed'] = True
+            bs_dict['status'] = expected_state
+        else:
+            self.result['failed'] = False
+            self.result['msg'] = ("bservice_state(): no state change required for B-service ID {} from current "
+                                  "state '{}' to desired state '{}'.").format(bs_dict['id'],
+                                                                              bs_dict['status'],
+                                                                              desired_state)
+        
+        start_api = ""
+
+        if bs_dict['status'] in ["ENABLED","enabled"]: 
+            if started == True and bs_dict['techStatus'] == "STOPPED":
+                start_api = "/restmachine/cloudapi/bservice/start"
+                t_state_expected = "STARTED"
+            if started == False and bs_dict['techStatus'] == "STARTED":
+                start_api = "/restmachine/cloudapi/bservice/stop"
+                t_state_expected = "STOPPED"
+        
+        if start_api != "":
+            self.decort_api_call(requests.post, start_api, api_params)
+            # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['failed'] = False
+            self.result['changed'] = True
+            bs_dict['techStatus'] = t_state_expected
+        else:
+            self.result['failed'] = False
+            self.result['msg'] = ("bservice_state(): no start/stop action required for B-service ID {} from current "
+                                  "techStatus '{}' to desired started = '{}'.").format(bs_dict['id'],
+                                                                              bs_dict['techStatus'],
+                                                                              started)
+        return
+
+    def bservice_delete(self,bs_id,permanently=False):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "bservice_delete")
+        
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = "bservice_delete() in check mode: delete B-Service ID {} was requested.".format(bs_id)
+            return
+
+        api_params = dict(serviceId=bs_id,permanently=False)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/bservice/delete", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['msg'] = "bservice_delete() B-Service ID {} was deleted.".format(bs_id)
+        self.result['changed'] = True
+
+        return
+
+#
+# GROUP MANAGE
+#
+    def _group_get_by_id(self,bs_id,g_id):
+        
+        api_params = dict(serviceId=bs_id,compgroupId=g_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/bservice/groupGet", api_params)
+        if api_resp.status_code == 200:
+            ret_gr_id = g_id
+            ret_gr_dict = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("group_get_by_id(): failed to get Group by ID {}. HTTP code {}, "
+                                      "response {}.").format(g_id, api_resp.status_code, api_resp.reason)
+        return ret_gr_id,ret_gr_dict
+    
+    def group_find(self,bs_id,bs_info,group_id=0,group_name=""):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "group_find")
+        
+        if group_id == 0:
+            try:
+                i = bs_info['groupsName'].index(group_name)
+            except:
+                return 0,None
+            group_id = int(bs_info['groups'][i])
+        return self._group_get_by_id(bs_id,group_id)
+    
+    def group_state(self,bs_id,gr_id,desired_state):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "group_state")
+
+        group_api=""
+        if desired_state == 'stopped':
+            group_api = "/restmachine/cloudapi/bservice/groupStop"
+            state_expected = "STOPPED"
+        else:
+            group_api = "/restmachine/cloudapi/bservice/groupStart"
+            state_expected = "STARTED"
+        api_params = dict(
+            serviceId=bs_id,
+            compgroupId=gr_id
+        )
+        if group_api != "":
+            self.decort_api_call(requests.post, group_api, api_params)
+            # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['failed'] = False
+            self.result['changed'] = True
+        else:
+            self.result['failed'] = False
+            self.result['msg'] = ("group_state(): no start/stop action required for B-service ID {} "
+                                  "to desired state '{}'.").format(bs_id,desired_state)
+        return
+    def group_resize_count(self,bs_id,gr_dict,desired_count):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "group_resize_count")
+
+        count = len(gr_dict['computes'])
+        if desired_count != count:
+            api_params=dict(
+                serviceId=bs_id,
+                compgroupId=gr_dict['id'],
+                count=desired_count,
+                mode="ABSOLUTE"
+            )
+            api_url = "/restmachine/cloudapi/bservice/groupResize"
+            self.decort_api_call(requests.post, api_url, api_params)
+            self.result['failed'] = False
+            self.result['changed'] = True
+            self.need_update_group_info = True
+        else:
+            self.result['failed'] = False
+            self.result['msg'] = ("group_resize_count(): no need resize  Group ID {}.").format(gr_dict['id'])
+        return                  
+    def group_update_hw(self,bs_id,gr_dict,arg_cpu,arg_disk,arg_name,arg_role,arg_ram):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "group_update_hw")
+
+        api_params=dict(
+            serviceId=bs_id,
+            compgroupId=gr_dict['id'],
+            force=True,
+        )
+
+        if gr_dict['cpu'] != arg_cpu:
+            api_params.update({'cpu': arg_cpu})
+        if gr_dict['ram'] != arg_ram:
+            api_params.update({'ram': arg_ram})
+        if gr_dict['role'] != arg_role:
+            api_params.update({'role': arg_role})
+        if gr_dict['disk'] != arg_disk:
+            api_params.update({'disk': arg_disk})
+        if gr_dict['name'] != arg_name:
+            api_params.update({'name': arg_name})
+
+        api_url = "/restmachine/cloudapi/bservice/groupUpdate"
+        if len(api_params) > 3:
+            # 
+            self.decort_api_call(requests.post, api_url, api_params)
+            self.result['failed'] = False
+            self.result['changed'] = True
+            self.need_update_group_info = True
+        else:
+            self.result['failed'] = False
+            self.result['msg'] = ("group_update_hw(): no need update Group ID {}.").format(gr_dict['id'])
+        return
+    
+    def group_update_net(self,bs_id,gr_dict,arg_net):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "group_update_net")
+
+        list_vins= list()
+        list_extnet= list()
+        for net in arg_net:
+            if net['type'] == 'VINS':
+                list_vins.append(net['id'])
+            else:
+                list_extnet.append(net['id'])
+
+        if gr_dict['vinses'] != list_vins:
+            api_url = "/restmachine/cloudapi/bservice/groupUpdateVins"
+            api_params = dict(
+                serviceId=bs_id,
+                compgroupId=gr_dict['id'],
+                vinses=list_vins
+            )
+            self.decort_api_call(requests.post, api_url, api_params)
+            self.result['failed'] = False
+            self.result['changed'] = True
+        
+        #extnet connection need stoped status of group
+        #rly need connect group to extnet ?
+        return
+    def group_provision(
+        self,bs_id,arg_name,arg_count=1,arg_cpu=1,arg_ram=1024,
+        arg_boot_disk=10,arg_image_id=0,arg_driver="KVM_X86",arg_role="",
+        arg_network=None,arg_timeout=0
+        ):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "group_provision")
+        
+        list_vins= list()
+        for net in arg_network:
+            if net['type'] == 'VINS':
+                list_vins.append(net['id'])
+        api_url = "/restmachine/cloudapi/bservice/groupAdd"
+        api_params = dict(
+            serviceId = bs_id,
+            name = arg_name,
+            count = arg_count,
+            cpu = arg_cpu,
+            ram = arg_ram,
+            disk = arg_boot_disk,
+            imageId = arg_image_id,
+            driver = arg_driver,
+            role = arg_role,
+            vinses = list_vins,
+            timeoutStart = arg_timeout
+        )
+        self.decort_api_call(requests.post, api_url, api_params)
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+    
+    def group_delete(self,bs_id,gr_id):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "group_delete")
+        
+        api_url = "/restmachine/cloudapi/bservice/groupRemove"
+        api_params=dict(
+            serviceId = bs_id,
+            compgroupId = gr_id
+        )
+        self.decort_api_call(requests.post, api_url, api_params)
+        self.result['failed'] = False
+        self.result['msg'] = "group_delete() Group ID {} was deleted.".format(gr_id)
+        self.result['changed'] = True
+        return      
