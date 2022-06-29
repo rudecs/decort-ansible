@@ -3200,7 +3200,7 @@ class DecortController(object):
         
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "bservice_provision")
 
-        api_url = "/cloudapi/bservice/create"
+        api_url = "/restmachine/cloudapi/bservice/create"
         api_params = dict(
             name = bs_name,
             rgId = rgid,
@@ -3250,7 +3250,7 @@ class DecortController(object):
         if bs_dict['status'] in ["CREATED", "ENABLED"] and desired_state == 'disabled':
             bsstate_api = "/restmachine/cloudapi/bservice/disable"
             expected_state = "DISABLED"
-        elif bs_dict['status'] == "DISABLED" and desired_state == 'enabled':
+        elif bs_dict['status'] in ["CREATED", "DISABLED"] and desired_state == 'enabled':
             bsstate_api = "/restmachine/cloudapi/bservice/enable"
             expected_state = "ENABLED"
 
@@ -3291,7 +3291,7 @@ class DecortController(object):
                                                                               started)
         return
 
-    def bservice_delete(self,bs_id,permanently=False):
+    def bservice_delete(self,bs_id,permanently=True):
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "bservice_delete")
         
@@ -3300,7 +3300,7 @@ class DecortController(object):
             self.result['msg'] = "bservice_delete() in check mode: delete B-Service ID {} was requested.".format(bs_id)
             return
 
-        api_params = dict(serviceId=bs_id,permanently=False)
+        api_params = dict(serviceId=bs_id,permanently=permanently)
         self.decort_api_call(requests.post, "/restmachine/cloudapi/bservice/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False

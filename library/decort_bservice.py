@@ -101,13 +101,15 @@ class decort_bservice(DecortController):
         return
 
     def create(self):
-        self.bservice_id = self.bservice_provision(
+        self.bservice_id = self.bservice_id = self.bservice_provision(
             self.amodule.params['name'],
             self.amodule.params['rg_id'],
-            self.amodule.params['sshUser'],
-            self.amodule.params['sshKey']
+            self.amodule.params['sshuser'],
+            self.amodule.params['sshkey']
         )
-        self.bservice_state(self.bservice_id,'enabled')
+        if self.bservice_id:
+            _, self.bservice_info = self.bservice_get_by_id(self.bservice_id)
+        self.bservice_state(self.bservice_info,'enabled',self.amodule.params['started'])
         return
 
     def action(self,d_state,started=False):
@@ -115,6 +117,9 @@ class decort_bservice(DecortController):
         return
 
     def restore(self):
+
+        self.result['failed'] = True
+        self.result['msg'] = "Restore B-Service ID {} manualy.".format(self.bservice_id)
         pass
 
     def destroy(self):
@@ -182,6 +187,8 @@ class decort_bservice(DecortController):
                     required=False,
                     fallback=(env_fallback, ['DECORT_USER'])),
             name=dict(type='str', required=True),
+            sshuser=dict(type='str', required=False,default=None),
+            sshkey=dict(type='str', required=False,default=None),
             id=dict(type='int', required=False, default=0),
             rg_id=dict(type='int', default=0),
             rg_name=dict(type='str',default=""),
@@ -267,7 +274,6 @@ def main():
             subj.nop()
         if amodule.params['state'] in ('present','started'):
             subj.create()
-            subj.action(amodule.params['state'],amodule.params['started'])
         elif amodule.params['state'] in ('stopped', 'disabled','enabled'):
             subj.error()
     
