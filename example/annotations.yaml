@@ -1,0 +1,40 @@
+---
+#
+# DECORT k8s module labels, taints, annotations example
+#
+
+- hosts: localhost
+  tasks:
+  - name: obtain JWT
+    decort_jwt:
+      oauth2_url: "https://sso.digitalenergy.online"
+      validity: 1200
+    register: my_jwt
+    delegate_to: localhost
+
+  - name: print out JWT
+    debug:
+      var: my_jwt.jwt
+    delegate_to: localhost
+
+  - name: Create k8s cluster
+    decort_k8s:
+      authenticator: jwt
+      jwt: "{{ my_jwt.jwt }}"
+      controller_url: "https://mr4.digitalenergy.online"
+      name: "example_kubernetes"
+      rg_id: 199
+      k8ci_id: 4
+      state: present
+      workers:
+      - name: workgroup1
+        labels:
+        - disktype1=ssd1
+        - disktype2=ssd2
+        taints:
+        - key1=value1:NoSchedule 
+        - key2=value2:NoSchedule
+        annotations:
+        - node.deckhouse.io/group1=g1
+        - node.deckhouse.io/group2=g2
+    register: kube

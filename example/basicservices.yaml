@@ -1,0 +1,31 @@
+---
+#
+# DECORT vins module example
+#
+
+- hosts: localhost
+  tasks:
+  - name: obtain JWT
+    decort_jwt:
+      oauth2_url: "https://sso.digitalenergy.online"
+      validity: 1200
+    register: my_jwt
+    delegate_to: localhost
+
+  - name: print out JWT
+    debug:
+      var: my_jwt.jwt
+    delegate_to: localhost
+
+  - name: Manage bservice at RG
+    decort_bservice:
+      account_id: 98
+      verify_ssl: false
+      authenticator: jwt
+      jwt: "{{ my_jwt.jwt }}"
+      controller_url: "https://ds1.digitalenergy.online"
+      rg_id: 1629
+      state: present
+      name: databases
+      started: True
+    register: db_bservice
