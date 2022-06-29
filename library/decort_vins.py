@@ -242,6 +242,7 @@ facts:
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.basic import env_fallback
+import paramiko
 
 from ansible.module_utils.decort_utils import *
 
@@ -316,6 +317,9 @@ def decort_vins_parameters():
         ext_net_id=dict(type='int', required=False, default=-1),
         ext_ip_addr=dict(type='str', required=False, default=''),
         ipcidr=dict(type='str', required=False, default=''),
+        mgmtaddr=dict(type='str',required=False, default=''),
+        custom_config=dict(type='bool',required=False, default=False),
+        config_save=dict(type='bool',required=False, default=False),
         jwt=dict(type='str',
                  required=False,
                  fallback=(env_fallback, ['DECORT_JWT']),
@@ -387,6 +391,7 @@ def main():
         vins_level = "ID"
         validated_acc_id = vins_facts['accountId']
         validated_rg_id = vins_facts['rgId']
+   
     elif amodule.params['rg_id']:
         # expect ViNS @ RG level in the RG with specified ID
         vins_level = "RG"
@@ -443,7 +448,6 @@ def main():
             # rg_name without account specified
             decon.result['msg'] = "Cannot find ViNS by name when RG name is empty and RG ID is 0."
         decon.fail_json(**decon.result)
-
     #
     # Initial validation of module arguments is complete
     #
@@ -457,7 +461,7 @@ def main():
     #
     # "MODELED", "CREATED", "ENABLED", "ENABLING", "DISABLED", "DISABLING", "DELETED", "DELETING", "DESTROYED", "DESTROYING"
     #
-
+    # if cconfig_save is true, only config save without other updates
     vins_should_exist = False
 
     if vins_id:
@@ -491,7 +495,9 @@ def main():
             elif amodule.params['state'] in ('present', 'enabled'):
                 # update ViNS
                 decon.vins_update(vins_facts,
-                                  amodule.params['ext_net_id'], amodule.params['ext_ip_addr'])
+                                  amodule.params['ext_net_id'], amodule.params['ext_ip_addr'],
+                                  amodule.params['mgmtaddr'],
+                                  )
             elif amodule.params['state'] == 'disabled':
                 # disable and update ViNS
                 decon.vins_state(vins_facts, 'disabled')
@@ -586,6 +592,10 @@ def main():
                 # be returned.
                 _, vins_facts = decon.vins_find(vins_id)
         decon.result['facts'] = decort_vins_package_facts(vins_facts, amodule.check_mode)
+        # add password to facts if mgmtaddr is present
+        # need reworking
+        if amodule.params['mgmtaddr'] != "":
+            decon.result['facts'].update({'password': vins_facts['VNFDev']['config']['mgmt']['password']})
         amodule.exit_json(**decon.result)
 
 
