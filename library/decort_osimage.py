@@ -22,8 +22,7 @@ description: >
      This module can be used to obtain image ID of an OS image in DECORT cloud to use with subsequent calls to
      decort_vm module for batch VM provisioning. It will speed up VM creation and save a bunch of extra calls to
      DECORT cloud controller on each VM creation act.
-     Note that this module is effectively an information provisioner. It is not designed to and does not manage 
-     nor change state of OS image (or any other) objects in DECORT cloud.
+
 version_added: "2.2"
 author:
      - Sergey Shubin <sergey.shubin@digitalenergy.online>
@@ -109,10 +108,6 @@ options:
         - 'This parameter is required when I(authenticator=legacy) and ignored for other authentication modes.'
         - If not specified in the playbook, the value will be taken from DECORT_USER environment variable.
         required: no
-    vdc_id:
-        description:
-        - ID of the VDC to limit the search of the OS image to.
-        required: no
     verify_ssl:
         description:
         - 'Controls SSL verification mode when making API calls to DECORT controller. Set it to False if you
@@ -134,19 +129,138 @@ options:
         - 'This context data is expected to uniquely identify the task carried out by this module invocation so
            that up-level orchestrator could match returned information to the its internal entities.'
         required: no
+
+
+
+    account_name:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    virt_id:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    virt_name:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    state:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    drivers:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    architecture:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    imagetype:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    boottype:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    url:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    sepId:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    poolName:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    hotresize:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    image_username:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    image_password:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    usernameDL:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    passwordDL:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+    permanently:
+        description:
+        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        required: no
+
+
+
+
+
+
+
+
 '''
 
 EXAMPLES = '''
-- name: locate OS image specified by its name, store result in image_to_use variable.
+  - name: create_osimage 
     decort_osimage:
       authenticator: oauth2
-      app_id: "{{ MY_APP_ID }}"
-      app_secret: "{{ MY_APP_SECRET }}"
+      verify_ssl: False
       controller_url: "https://ds1.digitalenergy.online"
-      image_name: "Ubuntu 18.04 v1.2.5"
-      account_name: "GreyseDevelopment"
+      state: present
+      image_name: "alpine_linux3.14.0"
+      account_Id: 12345
+      url: "https://dl-cdn.alpinelinux.org/alpine/v3.14/releases/x86_64/alpine-virt-3.14.0-x86_64.iso"
+      boottype: "uefi"
+      imagetype: "linux"
+      hotresize: False
+      image_username: "test"
+      image_password: "p@ssw0rd"
+      usernameDL: "testDL"
+      passwordDL: "p@ssw0rdDL"
+      architecture: "X86_64"
+      drivers: "KVM_X86"
     delegate_to: localhost
-    register: image_to_use
+    register: osimage
+
+  - name: get_osimage 
+    decort_osimage:
+      authenticator: oauth2
+      controller_url: "https://ds1.digitalenergy.online"
+      image_name: "alpine_linux_3.14.0"
+      account_Id: 12345
+    delegate_to: localhost
+    register: osimage
+
+  - name: create_virtual_osimage 
+    decort_osimage:
+      authenticator: oauth2
+      controller_url: "https://ds1.digitalenergy.online"
+      image_name: "alpine_linux_3.14.0"
+      virt_name: "alpine_last"
+    delegate_to: localhost
+    register: osimage
+
+  - name: rename_osimage 
+    decort_osimage:
+      authenticator: oauth2
+      controller_url: "https://ds1.digitalenergy.online"
+      image_name: "alpine_linux_3.14.0v2.0"
+      image_id: 54321
+    delegate_to: localhost
+    register: osimage
+
+
+
 '''
 
 RETURN = '''
@@ -157,6 +271,7 @@ facts:
     sample:
       facts:
         id: 100
+        linkto: 80
         name: "Ubuntu 16.04 v1.0"
         size: 3
         sep_id: 1
@@ -171,94 +286,205 @@ from ansible.module_utils.basic import env_fallback
 
 from ansible.module_utils.decort_utils import *
 
+class decort_osimage(DecortController):
+    def __init__(self,amodule):
+        super(decort_osimage, self).__init__(amodule)
 
-def decort_osimage_package_facts(arg_osimage_facts, arg_check_mode=False):
-    """Package a dictionary of OS image according to the decort_osimage module specification. This 
-    dictionary will be returned to the upstream Ansible engine at the completion of the module run.
+        self.validated_image_id = 0
+        self.validated_virt_image_id = 0
+        self.validated_image_name = amodule.params['image_name']
+        self.validated_virt_image_name = None
+        self.validated_virt_image_id = amodule.params['virt_id']
+        if amodule.params['account_name']:
+            self.validated_account_id, _ = self.account_find(amodule.params['account_name'])
+        else:
+            self.validated_account_id = amodule.params['account_Id']
+        
+        if self.validated_account_id == 0:
+            # we failed either to find or access the specified account - fail the module
+            self.result['failed'] = True
+            self.result['changed'] = False
+            self.result['msg'] = ("Cannot find account '{}'").format(amodule.params['account_name'])
+            amodule.fail_json(**self.result)
 
-    @param arg_osimage_facts: dictionary with OS image facts as returned by API call to .../images/list
-    @param arg_check_mode: boolean that tells if this Ansible module is run in check mode.
 
-    @return: dictionary with OS image specs populated from arg_osimage_facts.
-    """
+        if amodule.params['image_id'] != 0 and amodule.params['image_name']:
+            self.validated_image_id = amodule.params['image_id']
+            if amodule.params['image_name']:
+                decort_osimage.decort_image_rename(self,amodule)
+                self.result['msg'] = ("Image renamed successfully")
 
-    ret_dict = dict(id=0,
-                    name="none",
-                    size=0,
-                    type="none",
-                    state="CHECK_MODE",
-                    )
 
-    if arg_check_mode:
-        # in check mode return immediately with the default values
-        return ret_dict
 
-    if arg_osimage_facts is None:
-        # if void facts provided - change state value to ABSENT and return
-        ret_dict['state'] = "ABSENT"
-        return ret_dict
+    def decort_image_find(self, amodule):
+        # function that finds the OS image
+        image_id, image_facts = self.image_find(image_id=amodule.params['image_id'], image_name=self.validated_image_name,
+                                                account_id=self.validated_account_id, rg_id=0,
+                                                sepid=amodule.params['sep_id'],
+                                                pool=amodule.params['pool'])
+        return image_id, image_facts
+
+    def decort_virt_image_find(self, amodule):
+        # function that finds a virtual image
+        image_id, image_facts = self.virt_image_find(image_id=amodule.params['virt_id'],
+                                                    account_id=self.validated_account_id, rg_id=0,
+                                                    sepid=amodule.params['sep_id'],
+                                                    virt_name=amodule.params['virt_name'],
+                                                    pool=amodule.params['pool'])
+        return image_id, image_facts
+
+
+
+    def decort_image_create(self,amodule):
+        # function that creates OS image
+        image_facts = self.image_create(img_name=self.validated_image_name, 
+                        url=amodule.params['url'], 
+                        gid=amodule.params['gid'], 
+                        boottype=amodule.params['boottype'],
+                        imagetype=amodule.params['imagetype'],
+                        hotresize=amodule.params['hotresize'],
+                        username=amodule.params['image_username'],
+                        password=amodule.params['image_password'],
+                        account_Id=amodule.params['account_Id'],
+                        usernameDL=amodule.params['usernameDL'],
+                        passwordDL=amodule.params['passwordDL'],
+                        sepId=amodule.params['sepId'],
+                        poolName=amodule.params['poolName'],
+                        architecture=amodule.params['architecture'],
+                        drivers=amodule.params['drivers'])
+        self.result['changed'] = True
+        return image_facts
+
+    def decort_virt_image_link(self,amodule):
+        # function that links an OS image to a virtual one
+        self.virt_image_link(imageId=self.validated_virt_image_id, targetId=self.validated_image_id)
+        image_id, image_facts = decort_osimage.decort_virt_image_find(self, amodule)
+        self.result['facts'] = decort_osimage.decort_osimage_package_facts(image_facts, amodule.check_mode)
+        self.result['msg'] = ("Image '{}' linked to virtual image '{}'").format(self.validated_image_id,
+                                                                                decort_osimage.decort_osimage_package_facts(image_facts)['id'],)
+        return image_id, image_facts
     
-    ret_dict['id'] = arg_osimage_facts['id']
-    ret_dict['name'] = arg_osimage_facts['name']
-    ret_dict['size'] = arg_osimage_facts['size']
-    ret_dict['type'] = arg_osimage_facts['type']
-    # ret_dict['arch'] = arg_osimage_facts['architecture']
-    ret_dict['sep_id'] = arg_osimage_facts['sepId']
-    ret_dict['pool'] = arg_osimage_facts['pool']
-    ret_dict['state'] = arg_osimage_facts['status']
+    def decort_image_delete(self,amodule):
+        # function that removes an image
+        self.image_delete(imageId=amodule.image_id_delete, permanently=amodule.params['permanently'])
+        self.result['changed'] = True
+        self.result['msg'] = ("Image '{}' deleted").format(amodule.image_id_delete)
 
-    return ret_dict
+    def decort_virt_image_create(self,amodule):
+        # function that creates a virtual image
+        image_facts = self.virt_image_create(name=amodule.params['virt_name'], targetId=self.validated_image_id)
+        image_id, image_facts = decort_osimage.decort_virt_image_find(self, amodule)
+        self.result['facts'] = decort_osimage.decort_osimage_package_facts(image_facts, amodule.check_mode)
+        return image_id, image_facts
+    
+    def decort_image_rename(self,amodule):
+        # image renaming function
+        image_facts = self.image_rename(imageId=self.validated_image_id, name=amodule.params['image_name'])
+        self.result['msg'] = ("Image renamed successfully")
+        image_id, image_facts = decort_osimage.decort_image_find(self, amodule)
+        return image_id, image_facts
 
-def decort_osimage_parameters():
-    """Build and return a dictionary of parameters expected by decort_osimage module in a form accepted
-    by AnsibleModule utility class."""
 
-    return dict(
-        app_id=dict(type='str',
-                    required=False,
-                    fallback=(env_fallback, ['DECORT_APP_ID'])),
-        app_secret=dict(type='str',
+    def decort_osimage_package_facts(arg_osimage_facts, arg_check_mode=False):
+        """Package a dictionary of OS image according to the decort_osimage module specification. This
+        dictionary will be returned to the upstream Ansible engine at the completion of the module run.
+
+        @param arg_osimage_facts: dictionary with OS image facts as returned by API call to .../images/list
+        @param arg_check_mode: boolean that tells if this Ansible module is run in check mode.
+
+        @return: dictionary with OS image specs populated from arg_osimage_facts.
+        """
+
+        ret_dict = dict(id=0,
+                        name="none",
+                        size=0,
+                        type="none",
+                        state="CHECK_MODE",                        )
+
+        if arg_check_mode:
+            # in check mode return immediately with the default values
+            return ret_dict
+
+        if arg_osimage_facts is None:
+            # if void facts provided - change state value to ABSENT and return
+            ret_dict['state'] = "ABSENT"
+            return ret_dict
+    
+        ret_dict['id'] = arg_osimage_facts['id']
+        ret_dict['name'] = arg_osimage_facts['name']
+        ret_dict['size'] = arg_osimage_facts['size']
+        ret_dict['type'] = arg_osimage_facts['type']
+        # ret_dict['arch'] = arg_osimage_facts['architecture']
+        ret_dict['sep_id'] = arg_osimage_facts['sepId']
+        ret_dict['pool'] = arg_osimage_facts['pool']
+        ret_dict['state'] = arg_osimage_facts['status']
+        ret_dict['linkto'] = arg_osimage_facts['linkTo']
+        return ret_dict
+
+
+    def decort_osimage_parameters():
+        """Build and return a dictionary of parameters expected by decort_osimage module in a form accepted
+        by AnsibleModule utility class."""
+
+        return dict(
+            app_id=dict(type='str',
                         required=False,
-                        fallback=(env_fallback, ['DECORT_APP_SECRET']),
-                        no_log=True),
-        authenticator=dict(type='str',
-                           required=True,
-                           choices=['legacy', 'oauth2', 'jwt']),
-        controller_url=dict(type='str', required=True),
-        image_name=dict(type='str', required=True),
-        jwt=dict(type='str',
-                 required=False,
-                 fallback=(env_fallback, ['DECORT_JWT']),
-                 no_log=True),
-        oauth2_url=dict(type='str',
-                        required=False,
-                        fallback=(env_fallback, ['DECORT_OAUTH2_URL'])),
-        password=dict(type='str',
+                        fallback=(env_fallback, ['DECORT_APP_ID'])),
+            app_secret=dict(type='str',
+                            required=False,
+                            fallback=(env_fallback, ['DECORT_APP_SECRET']),
+                            no_log=True),
+            authenticator=dict(type='str',
+                               required=True,
+                               choices=['legacy', 'oauth2', 'jwt']),
+            controller_url=dict(type='str', required=True),
+            jwt=dict(type='str',
+                     required=False,
+                     fallback=(env_fallback, ['DECORT_JWT']),
+                     no_log=True),
+            oauth2_url=dict(type='str',
+                            required=False,
+                            fallback=(env_fallback, ['DECORT_OAUTH2_URL'])),
+            password=dict(type='str',
+                          required=False,
+                          fallback=(env_fallback, ['DECORT_PASSWORD']),
+                          no_log=True),
+            pool=dict(type='str', required=False, default=""),
+            sep_id=dict(type='int', required=False, default=0),
+            account_name=dict(type='str', required=False),
+            account_Id=dict(type='int', required=False),
+            user=dict(type='str',
                       required=False,
-                      fallback=(env_fallback, ['DECORT_PASSWORD']),
-                      no_log=True),
-        pool=dict(type='str', required=False, default=""),
-        sep_id=dict(type='int', required=False, default=0),
-        account_name=dict(type='str', required=True),
-        user=dict(type='str',
-                  required=False,
-                  fallback=(env_fallback, ['DECORT_USER'])),
-        vdc_id=dict(type='int', required=False, default=0),
-        verify_ssl=dict(type='bool', required=False, default=True),
-        workflow_callback=dict(type='str', required=False),
-        workflow_context=dict(type='str', required=False),
-    )
-
-# Workflow digest:
-# 1) authenticate to DECORT controller & validate authentication by issuing API call - done when 
-#    creating DecortController
-# 2) obtain a list of OS images accessible to the specified account (and optionally - within 
-#    the specified VDC)
-# 3) match specified OS image by its name - if image is not found abort the module
-# 5) report result to Ansible
+                      fallback=(env_fallback, ['DECORT_USER'])),
+            verify_ssl=dict(type='bool', required=False, default=True),
+            workflow_callback=dict(type='str', required=False),
+            workflow_context=dict(type='str', required=False),
+            image_name=dict(type='str', required=False),
+            image_id=dict(type='int', required=False,default=0),
+            virt_id=dict(type='int', required=False, default=0),
+            virt_name=dict(type='str', required=False),
+            state=dict(type='str',
+                   default='present',
+                   choices=['absent', 'present']),
+            drivers=dict(type='str', required=False, default="KVM_X86"),
+            architecture=dict(type='str', required=False, default="X86_64"),
+            imagetype=dict(type='str', required=False, default="linux"),
+            boottype=dict(type='str', required=False, default="uefi"),
+            url=dict(type='str', required=False),
+            gid=dict(type='int', required=False, default=0),
+            sepId=dict(type='int', required=False, default=0),
+            poolName=dict(type='str', required=False),
+            hotresize=dict(type='bool', required=False, default=False),
+            image_username=dict(type='str', required=False),
+            image_password=dict(type='str', required=False),
+            usernameDL=dict(type='str', required=False),
+            passwordDL=dict(type='str', required=False),
+            permanently=dict(type='bool', required=False, default=False),
+        )
+        
 
 def main():
-    module_parameters = decort_osimage_parameters()
+    module_parameters = decort_osimage.decort_osimage_parameters()
 
     amodule = AnsibleModule(argument_spec=module_parameters,
                             supports_check_mode=True,
@@ -273,30 +499,67 @@ def main():
                             ],
                             )
 
-    decon = DecortController(amodule)
+    decon = decort_osimage(amodule)
 
-    # we need account ID to locate OS images - find the account by the specified name and get its ID
-    validated_account_id, _ = decon.account_find(amodule.params['account_name'])
-    if validated_account_id == 0:
-        # we failed either to find or access the specified account - fail the module
-        decon.result['failed'] = True
-        decon.result['changed'] = False
-        decon.result['msg'] = ("Cannot find account '{}'").format(amodule.params['account_name'])
-        amodule.fail_json(**decon.result)
+    if amodule.params['image_name'] or amodule.params['image_id']:
+        image_id, image_facts = decort_osimage.decort_image_find(decon, amodule)
+        decon.validated_image_id = decort_osimage.decort_osimage_package_facts(image_facts)['id']
+        if decort_osimage.decort_osimage_package_facts(image_facts)['id'] > 0:
+            decon.result['facts'] = decort_osimage.decort_osimage_package_facts(image_facts, amodule.check_mode)
 
-    image_id, image_facts = decon.image_find(image_id=0, image_name=amodule.params['image_name'], 
-                                             account_id=validated_account_id, rg_id=0,
-                                             sepid=amodule.params['sep_id'],
-                                             pool=amodule.params['pool'])
+    if amodule.params['state'] == "present" and decon.validated_image_id == 0 and amodule.params['image_name'] and amodule.params['url']:
+        decort_osimage.decort_image_create(decon,amodule)
+        decon.result['changed'] = True
+        image_id, image_facts = decort_osimage.decort_image_find(decon, amodule)
+        decon.result['msg'] = ("OS image '{}' created").format(decort_osimage.decort_osimage_package_facts(image_facts)['id'])
+        decon.result['facts'] = decort_osimage.decort_osimage_package_facts(image_facts, amodule.check_mode)
+        decon.validated_image_id = decort_osimage.decort_osimage_package_facts(image_facts)['id']
+
+    
+    elif amodule.params['state'] == "absent" and amodule.params['image_name'] or amodule.params['image_id'] and decort_osimage.decort_osimage_package_facts(image_facts)['accountId'] == amodule.params['account_Id']:
+        amodule.image_id_delete = decon.validated_image_id
+        decort_osimage.decort_image_delete(decon,amodule)
+    
+
+
+    if amodule.params['virt_name'] or amodule.params['virt_id']:
+
+        image_id, image_facts = decort_osimage.decort_virt_image_find(decon, amodule)
+        if decort_osimage.decort_osimage_package_facts(image_facts)['id'] > 0:
+            decon.result['facts'] = decort_osimage.decort_osimage_package_facts(image_facts, amodule.check_mode)
+        decon.validated_virt_image_id = decort_osimage.decort_osimage_package_facts(image_facts)['id']
+        decon.validated_virt_image_name = decort_osimage.decort_osimage_package_facts(image_facts)['name']
+
+
+        if decort_osimage.decort_osimage_package_facts(image_facts)['id'] == 0 and amodule.params['state'] == "present" and decon.validated_image_id > 0:
+            image_id, image_facts = decort_osimage.decort_virt_image_create(decon,amodule)
+            decon.result['msg'] = ("Virtual image '{}' created").format(decort_osimage.decort_osimage_package_facts(image_facts)['id'])
+            decon.result['changed'] = True
+        elif decort_osimage.decort_osimage_package_facts(image_facts)['id'] == 0 and amodule.params['state'] == "present" and decon.validated_image_id == 0:
+            decon.result['msg'] = ("Cannot find OS image")
+            amodule.fail_json(**decon.result)
+
+
+        if decon.validated_image_id:
+            if decort_osimage.decort_osimage_package_facts(image_facts)['linkto'] != decon.validated_image_id:
+                decort_osimage.decort_virt_image_link(decon,amodule)
+                decon.result['changed'] = True
+                amodule.exit_json(**decon.result)
+        
+
+        if decon.validated_virt_image_id > 0 and amodule.params['state'] == "absent":
+            decon.result['msg'] = ("Osimage module cannot delete virtual images.")
+            decon.result['failed'] = True
+            amodule.exit_json(**decon.result)
+
+
     if decon.result['failed'] == True:
         # we failed to find the specified image - fail the module
         decon.result['changed'] = False
         amodule.fail_json(**decon.result)
 
-    decon.result['facts'] = decort_osimage_package_facts(image_facts, amodule.check_mode)
-    decon.result['changed'] = False # decort_osimage is a read-only module - make sure the 'changed' flag is set to False
     amodule.exit_json(**decon.result)
 
-
+    
 if __name__ == "__main__":
     main()
