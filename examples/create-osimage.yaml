@@ -1,0 +1,27 @@
+---
+#
+# DECORT osimage module example
+#
+- hosts: localhost
+  tasks:
+  - name: create 
+    decort_osimage:
+      authenticator: oauth2
+      verify_ssl: False
+      controller_url: "https://ds1.digitalenergy.online"
+      state: present
+      image_name: "alpine_linux3.14.0"
+      account_Id: 12345
+      url: "https://dl-cdn.alpinelinux.org/alpine/v3.14/releases/x86_64/alpine-virt-3.14.0-x86_64.iso"
+      boottype: "uefi"
+      imagetype: "linux"
+      hotresize: False
+      image_username: "test"
+      image_password: "p@ssword"
+      usernameDL: "testDL"
+      passwordDL: "p@sswordDL"
+      architecture: "X86_64"
+      drivers: "KVM_X86"
+
+    delegate_to: localhost
+    register: simple_vm
