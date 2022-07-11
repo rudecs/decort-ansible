@@ -67,8 +67,8 @@ options:
     image_name:
         description:
         - Name of the OS image to use. Module will return the ID of this image.
-        - 'The specified image name will be looked up in the target DECORT controller and error will be generated if
-          no matching image is found.'
+        - 'The specified image name will be looked up in the target DECORT controller and error will be generated
+        - if no matching image is found.'
         required: yes
     jwt:
         description:
@@ -129,84 +129,89 @@ options:
         - 'This context data is expected to uniquely identify the task carried out by this module invocation so
            that up-level orchestrator could match returned information to the its internal entities.'
         required: no
-
-
-
     account_name:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'Account name. Used to get a unique integer account ID.'
         required: no
     virt_id:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'A unique integer identifier for the virtual image.'
+        - 'Can be used to obtain information about a virtual image, as well as to create a virtual image and 
+        - bind another operating system image to it.'
         required: no
     virt_name:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'Name of the virtual image. Used to get the `virt_id`, and later information about the virtual image, 
+        - as well as to create a virtual image and bind another operating system image to it.'
         required: no
     state:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'The state of the images. If set to present, operating system images will be created to which 
+        - the account specified in `account_Id` or `account_name` is bound. If set to absent, they will be removed.
         required: no
     drivers:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'A list of compute types (eg virtual servers) that are appropriate for the operating system image. 
+        - Note: `KVM_X86`. Used when creating an operating system image.'
         required: no
     architecture:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'Binary architecture of the image. Note. `X86_64` or `PPC64_LE`. Used when creating 
+        -an operating system image.'
         required: no
     imagetype:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'Image type. `linux`, `windows` or `other`. The default is `linux`. Used when creating
+        - an operating system image.'
         required: no
     boottype:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'Image upload type. `bios` or `uefi`. The default is `uefi`. Used when creating an operating 
+        -system image.'
         required: no
     url:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'Uniform resource locator (URL) pointing to the iso image of the operating system. Used when 
+        -creating an operating system image.'
         required: no
     sepId:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'The unique integer ID of the storage provider endpoint. Specified in pair with `poolName`. 
+        - Used when creating an operating system image.'
         required: no
     poolName:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'The pool in which the image will be created. Specified in pair with `sepId`. Used when creating
+        - an operating system image.'
         required: no
     hotresize:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'Whether the image supports "hot" resizing. The default is `false`. Used when creating an operating
+        - system image.'
         required: no
     image_username:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'An optional username for the image. Used when creating an operating system image.'
         required: no
     image_password:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'An optional password for the image. Used when creating an operating system image. Used when creating
+        - an operating system image.'
         required: no
     usernameDL:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'The username for loading the binary media. Used in conjunction with `passwordDL`. Used when creating
+        - an operating system image'
         required: no
     passwordDL:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'The password for loading the binary media. Used in conjunction with `usernameDL`. Used when creating
+        - an operating system image.'
         required: no
     permanently:
         description:
-        - 'Context data that will be included into the payload of the API call directed at I(workflow_callback) URL.'
+        - 'Whether to permanently delete the image. Used when deleting an image. The default is false.'
         required: no
-
-
-
-
-
-
-
 
 '''
 
