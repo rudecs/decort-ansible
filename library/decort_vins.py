@@ -320,6 +320,7 @@ def decort_vins_parameters():
         mgmtaddr=dict(type='str',required=False, default=''),
         custom_config=dict(type='bool',required=False, default=False),
         config_save=dict(type='bool',required=False, default=False),
+        connect_to=dict(type='list', default=[], required=False),
         jwt=dict(type='str',
                  required=False,
                  fallback=(env_fallback, ['DECORT_JWT']),
@@ -496,8 +497,16 @@ def main():
                 # update ViNS
                 decon.vins_update(vins_facts,
                                   amodule.params['ext_net_id'], amodule.params['ext_ip_addr'],
-                                  amodule.params['mgmtaddr'],
+                                  
                                   )
+                decon.vins_update_mgmt(
+                                        vins_facts,
+                                        amodule.params['mgmtaddr'],
+                                        )
+                decon.vins_update_ifaces(
+                                        vins_facts,
+                                        amodule.params['connect_to'],
+                )
             elif amodule.params['state'] == 'disabled':
                 # disable and update ViNS
                 decon.vins_state(vins_facts, 'disabled')

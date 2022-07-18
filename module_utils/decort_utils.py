@@ -2166,7 +2166,7 @@ class DecortController(object):
                                                                               desired_state)
         return
 
-    def vins_update(self, vins_dict, ext_net_id, ext_ip_addr="", mgmtaddr=""):
+    def vins_update(self, vins_dict, ext_net_id, ext_ip_addr=""):
         """Update ViNS. Currently only updates to the external network connection settings and
         external IP address assignment are implemented.
         Note that as ViNS created at account level cannot have external connections, attempt 
@@ -2190,11 +2190,6 @@ class DecortController(object):
             self.result['failed'] = False
             self.result['msg'] = ("vins_update() in check mode: updating ViNS ID {}, name '{}' "
                                   "was requested.").format(vins_dict['id'], vins_dict['name'])
-            return
-        if self.amodule.params['config_save'] and vins_dict['VNFDev']['customPrecfg']:
-            # only save config,no other modifictaion
-            self.result['changed'] = True
-            self._vins_vnf_config_save(vins_dict['VNFDev']['id'])
             return
 
         if not vins_dict['rgId']:
@@ -2246,24 +2241,117 @@ class DecortController(object):
                 self.result['warning'] = ("vins_update(): ViNS ID {} is already connected to ext net ID {}, "
                                           "no reconnection to default network will be done.").format(vins_dict['id'],
                                                                                                      gw_config[
-                                                                                                         'ext_net_id'])
+                                                                                                         'ext_net_id']) 
+        return
+    def vins_update_mgmt(self, vins_dict, mgmtaddr=""):
+        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_update_mgmt")
+        
+        if self.amodule.params['config_save'] and vins_dict['VNFDev']['customPrecfg']:
+            # only save config,no other modifictaion
+            self.result['changed'] = True
+            self._vins_vnf_config_save(vins_dict['VNFDev']['id'])
+            self.result['changed'] = True
+            self.result['failed'] = False
+            return
+        
         for iface in vins_dict['VNFDev']['interfaces']:
             if iface['ipAddress'] == mgmtaddr:
                 if  not iface['listenSsh']:
                     self._vins_vnf_addmgmtaddr(vins_dict['VNFDev']['id'],mgmtaddr)
+                    self.result['changed'] = True
+                    self.result['failed'] = False
             elif mgmtaddr =="":
                 if iface['listenSsh'] and iface['name'] != "ens9":
                     self._vins_vnf_delmgmtaddr(vins_dict['VNFDev']['id'],iface['ipAddress'])
-        
+                    self.result['changed'] = True
+                    self.result['failed'] = False
         if self.amodule.params['custom_config']:
             if not vins_dict['VNFDev']['customPrecfg']:
                 self._vins_vnf_config_save(vins_dict['VNFDev']['id'])
                 self._vins_vnf_customconfig_set(vins_dict['VNFDev']['id'])
+                self.result['changed'] = True
+                self.result['failed'] = False
         else: 
             if vins_dict['VNFDev']['customPrecfg']:
                 self._vins_vnf_customconfig_set(vins_dict['VNFDev']['id'],False)
- 
+                self.result['changed'] = True
+                self.result['failed'] = False
         return
+    
+    def vins_update_ifaces(self,vins_dict,vinses=""):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_update_ifaces")
+        existed_conn_ip = []
+        #vnf_dict = self._get_vnf_by_id(vins_dict['VNFDev']['id'])
+        list_account_vins = self._get_all_account_vinses(vins_dict['VNFDev']['accountId'])
+        list_account_vinsid = [rec['id'] for rec in list_account_vins]
+        list_ifaces_ip = [rec['ipaddr'] for rec in vinses]
+        vins_inner = [rec['id'] for rec in vinses]
+        vins_outer = [rec['id'] for rec in list_account_vins]    
+        for iface in vins_dict['VNFDev']['interfaces']:
+            if iface['connType'] == "VXLAN" and iface['type'] == "CUSTOM":
+                if iface['ipAddress'] not in list_ifaces_ip:
+                    self._vnf_iface_remove(vins_dict['VNFDev']['id'],iface['name'])
+                    self.result['changed'] = True
+                    self.result['failed'] = False
+                else:
+                    existed_conn_ip.append(iface['ipAddress'])
+
+        for vins in vinses:
+            if vins['id'] in list_account_vinsid:
+                _,v_dict = self._vins_get_by_id(vins['id'])
+                if vins['ipaddr'] not in existed_conn_ip: 
+                    self._vnf_iface_add(vins_dict['VNFDev']['id'],v_dict['vxlanId'],vins['ipaddr'],vins['netmask'])
+                    self.result['changed'] = True
+                    self.result['failed'] = False  
+        return
+
+    def _vnf_iface_add(self,arg_devid,arg_vxlanid,arg_ipaddr,arg_netmask="24",arg_defgw=""):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "_vnf_iface_add")
+        api_params = dict(
+            devId=arg_devid,
+            ifType="CUSTOM",
+            connType="VXLAN",
+            connId=arg_vxlanid,
+            ipAddr=arg_ipaddr,
+            netMask=arg_netmask,
+            defGw=arg_defgw
+        )
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/ifaceAdd", api_params)
+        conn_dict = json.loads(api_resp.content.decode('utf8'))
+        return 
+
+    def _vnf_iface_remove(self,arg_devid,arg_iface_name):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "_vnf_iface_add")
+        api_params = dict(
+            devId=arg_devid,
+            name=arg_iface_name,
+
+        )
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/ifaceRemove", api_params)
+        return 
+
+    def _get_vnf_by_id(self,vnf_id):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "get_vnf_by_id")
+        api_params = dict(devId=vnf_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/get", api_params)
+        if api_resp.status_code == 200:
+            ret_vnf_dict = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("get_all_account_vinses(): failed to configuration of the specified VNF device ID{}. HTTP code {}, "
+                                      "response {}.").format(vnf_id, api_resp.status_code, api_resp.reason)
+        return ret_vnf_dict
+
+    def _get_all_account_vinses(self,acc_id):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "get_all_account_vinses")
+        api_params = dict(accountId=acc_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/listVins", api_params)
+        if api_resp.status_code == 200:
+            ret_listvins_dict = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("get_all_account_vinses(): failed to get list VINS in Account ID {}. HTTP code {}, "
+                                      "response {}.").format(acc_id, api_resp.status_code, api_resp.reason)
+        return ret_listvins_dict
 
     def _vins_vnf_addmgmtaddr(self,dev_id,mgmtip):
         
@@ -2649,8 +2737,8 @@ class DecortController(object):
                 iface_ipaddr = iface['ipAddress']
                 break
         else:
-            decon.result['failed'] = True
-            decon.result['msg'] = "Compute ID {} is not connected to ViNS ID {}.".format(comp_facts['id'],
+            self.result['failed'] = True
+            self.result['msg'] = "Compute ID {} is not connected to ViNS ID {}.".format(comp_facts['id'],
                                                                                          vins_facts['id'])
             return ret_rules
 
