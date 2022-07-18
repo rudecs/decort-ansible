@@ -1,0 +1,15 @@
+---
+#
+# DECORT osimage module example
+#
+- hosts: localhost
+  tasks:
+  - name: rename_osimage 
+    decort_osimage:
+      authenticator: oauth2
+      controller_url: "https://ds1.digitalenergy.online"
+      image_name: "alpine_linux_3.14.0v2.0"
+      image_id: 54321
+    delegate_to: localhost
+    register: osimage
+

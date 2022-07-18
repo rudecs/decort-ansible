@@ -1247,26 +1247,25 @@ class DecortController(object):
     def image_find(self, image_id, image_name, account_id, rg_id=0, sepid=0, pool=""):
         """Locates image specified by name and returns its facts as dictionary.
         Primary use of this function is to obtain the ID of the image identified by its name and,
-        optionally SEP ID and/or pool name. Also note that only images in status CREATED are 
+        optionally SEP ID and/or pool name. Also note that only images in status CREATED are
         returned.
 
         @param (string) image_id: ID of the OS image to find. If non-zero ID is specified, then
         image_name is ignored.
         @param (string) image_name: name of the OS image to find. This argument is ignored if non-zero
         image ID is passed.
-         @param (int) account_id: ID of the account for which the image will be looked up. If set to 0, 
+         @param (int) account_id: ID of the account for which the image will be looked up. If set to 0,
         the account ID will be obtained from the specified RG ID.
         @param (int) rg_id: ID of the RG to use as a reference when listing OS images. This argument is
         ignored if non-zero image id and/or non-zero account_id are specified.
-        @param (int) sepid: ID of the SEP where the image should be present. If set to 0, there will be no 
+        @param (int) sepid: ID of the SEP where the image should be present. If set to 0, there will be no
         filtering by SEP ID and the first matching image will be returned.
-        @param (string) pool: name of the pool where the image should be present. If set to empty string, there 
+        @param (string) pool: name of the pool where the image should be present. If set to empty string, there
         will be no filtering by pool name and first matching image will be returned.
 
-        @return: image ID and dictionary with image specs. If no matching image found, 0 for ID and None for 
+        @return: image ID and dictionary with image specs. If no matching image found, 0 for ID and None for
         dictionary are returned, and self.result['failed']=True.
         """
-
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "image_find")
 
         if image_id > 0:
@@ -1292,7 +1291,7 @@ class DecortController(object):
             for image_record in images_list:
                 if image_record['name'] == image_name and image_record['status'] == "CREATED":
                     if sepid == 0 and pool == "":
-                        # if no filtering by SEP ID or pool name is requested, return the first match 
+                        # if no filtering by SEP ID or pool name is requested, return the first match
                         return image_record['id'], image_record
                     # if positive SEP ID and/or non-emtpy pool name are passed, match by them
                     full_match = True
@@ -1302,6 +1301,7 @@ class DecortController(object):
                         full_match = False
                     if full_match:
                         return image_record['id'], image_record
+            self.result['failed'] = False
 
         self.result['failed'] = True
         self.result['msg'] = ("Failed to find OS image by name '{}', SEP ID {}, pool '{}' for "
@@ -1309,6 +1309,136 @@ class DecortController(object):
                                                          sepid, pool,
                                                          account_id)
         return 0, None
+
+    def virt_image_find(self, image_id, virt_name, account_id, rg_id=0, sepid=0, pool=""):
+        """Locates  virtual image specified by name and returns its facts as dictionary.
+        Primary use of this function is to obtain the ID of the image identified by its name and,
+        optionally SEP ID and/or pool name. Also note that only virtual images in status CREATED are
+        returned.
+
+        @param (string) image_id: ID of the OS image to find. If non-zero ID is specified, then
+        virt_name is ignored.
+        @param (string) virt_name: name of the OS image to find. This argument is ignored if non-zero
+        image ID is passed.
+         @param (int) account_id: ID of the account for which the image will be looked up. If set to 0,
+        the account ID will be obtained from the specified RG ID.
+        @param (int) rg_id: ID of the RG to use as a reference when listing OS images. This argument is
+        ignored if non-zero image id and/or non-zero account_id are specified.
+        @param (int) sepid: ID of the SEP where the image should be present. If set to 0, there will be no
+        filtering by SEP ID and the first matching image will be returned.
+        @param (string) pool: name of the pool where the image should be present. If set to empty string, there
+        will be no filtering by pool name and first matching image will be returned.
+
+        @return: image ID and dictionary with image specs. If no matching image found, 0 for ID and None for
+        dictionary are returned, and self.result['failed']=True.
+        """
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "virt_image_find")
+
+
+
+        if image_id > 0:
+            ret_image_id, ret_image_dict = self._image_get_by_id(image_id)
+            if (ret_image_id and
+                    (sepid == 0 or sepid == ret_image_dict['sepId']) and
+                    (pool == "" or pool == ret_image_dict['pool'])):
+                return ret_image_id, ret_image_dict
+        else:
+            validated_acc_id = account_id
+            if account_id == 0:
+                validated_rg_id, rg_facts = self._rg_get_by_id(rg_id)
+                if not validated_rg_id:
+                    self.result['failed'] = True
+                    self.result['msg'] = ("Failed to find RG ID {}, and account ID is zero.").format(rg_id)
+                    return 0, None
+                validated_acc_id = rg_facts['accountId']
+
+            api_params = dict(accountId=validated_acc_id)
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/image/list", api_params)
+            # On success the above call will return here. On error it will abort execution by calling fail_json.
+            images_list = json.loads(api_resp.content.decode('utf8'))
+            for image_record in images_list:
+                if image_record['name'] == virt_name and image_record['status'] == "CREATED" and image_record['type'] == "virtual":
+                    if sepid == 0 and pool == "":
+                        # if no filtering by SEP ID or pool name is requested, return the first match
+                        return image_record['id'], image_record
+                    full_match = True
+                    if full_match:
+                        return image_record['id'], image_record
+
+        self.result['failed'] = True
+        self.result['msg'] = ("Failed to find virtual OS image by name '{}', SEP ID {}, pool '{}' for "
+                              "account ID '{}'.").format(virt_name,
+                                                         sepid, pool,
+                                                         account_id)
+
+        return 0, None
+
+    def virt_image_create(self, name, targetId):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "virt_image_create")
+
+        api_params = dict(name=name, targetId=targetId,)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/image/createVirtual", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        virt_image_dict = json.loads(api_resp.content.decode('utf8'))
+
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return 0, None
+
+    def image_delete(self, imageId, permanently):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "image_delete")
+
+        api_params = dict(imageId=imageId, permanently=permanently,)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/image/delete", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        image_dict = json.loads(api_resp.content.decode('utf8'))
+
+        self.result['changed'] = True
+        return 0, None
+
+
+    def image_create(self,img_name,url,gid,boottype,imagetype,architecture,drivers,hotresize,username,password,account_Id,usernameDL,passwordDL,sepId,poolName):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "image_create")
+
+        api_params = dict(name=img_name, url=url,
+                            gid=gid, boottype=boottype,
+                            imagetype=imagetype, architecture=architecture,
+                            drivers=drivers, accountId=account_Id,
+                            hotresize=hotresize, username=username,
+                            password=password, usernameDL=usernameDL,
+                            passwordDL=passwordDL, sepId=sepId,
+                            poolName=poolName,
+                            )
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/image/create", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        virt_image_dict = json.loads(api_resp.content.decode('utf8'))
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return 0, None
+
+    def virt_image_link(self, imageId, targetId):
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "virt_image_link")
+
+        api_params = dict(imageId=imageId, targetId=targetId,)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/image/link", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        link_image_dict = json.loads(api_resp.content.decode('utf8'))
+        self.result['failed'] = False
+        self.result['changed'] = True
+
+
+        return 0, None
+
+    def image_rename(self, imageId, name):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "image_rename")
+        api_params = dict(imageId=imageId, name=name,)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/image/rename", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        link_image_dict = json.loads(api_resp.content.decode('utf8'))
+        self.result['failed'] = False
+        self.result['changed'] = True
 
     ###################################
     # Resource Group (RG) manipulation methods

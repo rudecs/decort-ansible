@@ -1,0 +1,38 @@
+#
+# DECORT kvmvm module example
+#
+- hosts: ansible_master
+  tasks:
+  - name: create a VM named cloud-init_example
+    decort_kvmvm:
+      annotation: "VM managed by decort_kvmvm module"
+      authenticator: oauth2
+      app_id: ""                                          # Application id from SSO Digital Energy
+      app_secret: ""                                      # API key from SSO Digital Energy
+      controller_url: ""                                  #"https://mr4.digitalenergy.online"
+      name: cloud-init_example
+      cpu: 2
+      ram: 2048
+      boot_disk: 10
+      image_name: "DECS Ubuntu 18.04 v1.2.3"              #Name of OS image
+      networks:
+        - type: VINS
+          id:                                             #VINS id
+      tags: "Ansible cloud init example"
+      state: present
+      rg_id:                                              #Resource group id
+      ci_user_data:
+        - packages:
+            - apache2
+        - write_files:
+            - content: |
+                <div>
+                Hello World!
+                </div>
+              owner: user:user
+              path: /var/www/html/index.html
+        - hostname: test-apache
+        - ssh_keys:
+            - rsa_public: ssh-rsa AAAAOasDmLxnD=  user@pc
+    delegate_to: localhost
+    register: simple_vm
