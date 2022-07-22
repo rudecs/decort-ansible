@@ -794,7 +794,7 @@ class decort_kvmvm(DecortController):
             affinity_label=dict(type='str', required=False),
             aff_rule=dict(type='list', required=False),
             aaff_rule=dict(type='list', required=False),
-            ci_user_data=dict(type='list', required=False),
+            ci_user_data=dict(type='list',elements='dict', required=False),
             state=dict(type='str',
                        default='present',
                        choices=['absent', 'paused', 'poweredoff', 'halted', 'poweredon', 'present', 'check']),

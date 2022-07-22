@@ -1,6 +1,6 @@
 ---
 #
-# DECORT vins module example
+# DECORT bservice module example
 #
 
 - hosts: localhost
