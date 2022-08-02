@@ -1,0 +1,14 @@
+---
+#
+# This playbook create engine "test".
+#
+- hosts: localhost
+  tasks:
+    - hashivault_secret_engine:
+        url: "https://vault.domain.local"
+        authtype: ldap
+        username: "user"
+        password: "p@ssword"
+        state: present
+        name: test
+        backend: generic
