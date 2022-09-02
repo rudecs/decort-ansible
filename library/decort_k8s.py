@@ -114,10 +114,10 @@ class decort_k8s(DecortController):
         return ret_dict
     
     def nop(self):
-        """No operation (NOP) handler for Compute management by decort_kvmvm module.
+        """No operation (NOP) handler for k8s cluster management by decort_k8s module.
         This function is intended to be called from the main switch construct of the module
         when current state -> desired state change logic does not require any changes to
-        the actual Compute state.
+        the actual k8s cluster state.
         """
         self.result['failed'] = False
         self.result['changed'] = False
@@ -319,7 +319,7 @@ def main():
         if amodule.params['state'] == 'absent':
             subj.nop()
         if amodule.params['state'] in ('present','started'):
-            subj.create()
+            subj.create() 
         elif amodule.params['state'] in ('stopped', 'disabled','enabled'):
             subj.error()
             
