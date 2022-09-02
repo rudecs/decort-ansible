@@ -1,0 +1,35 @@
+---
+
+- hosts: localhost
+  tasks:
+  - hashivault_read:
+      url: "https://vault.domain.local"
+      authtype: ldap
+      username: "user"
+      password: "p@ssword"
+      mount_point: kv
+      secret: secrets/myaccount
+      key: app_secret
+      version: 2
+    register: key
+
+  - name: create a VM using app_secret from hashicorp vault
+    decort_kvmvm:
+      annotation: "VM managed by decort_kvmvm module"
+      authenticator: oauth2
+      app_id: ""                                          # Application id from SSO Digital Energy
+      app_secret: "{{ key }}"                             # API key from SSO Digital Energy
+      controller_url: "https://cloud.digitalenergy.online" 
+      name: hashivault_read_example
+      cpu: 2
+      ram: 2048
+      boot_disk: 10
+      image_name: "DECS Ubuntu 18.04 v1.2.3"              #Name of OS image
+      networks:
+        - type: VINS
+          id: 99                                          #VINS id
+      tags: "Ansible hashivault_read example"
+      state: present
+      rg_id: 99                                           #Resource group id
+    delegate_to: localhost
+    register: simple_vm

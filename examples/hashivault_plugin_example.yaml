@@ -1,0 +1,31 @@
+- hosts: localhost
+  tasks:
+   - name: Read a kv2 secret with kv mount point
+     vars:
+       ansible_hashi_vault_auth_method: ldap
+       ansible_hashi_vault_username: username
+       ansible_hashi_vault_password: pwd
+       ansible_hashi_vault_engine_mount_point: kv
+     ansible.builtin.set_fact:
+       response: "{{ lookup('community.hashi_vault.vault_kv2_get', 'secret', url='https://vault.domain.local') }}"
+
+  - name: create a VM using app_secret from hashicorp vault 
+    decort_kvmvm:
+      annotation: "VM managed by decort_kvmvm module"
+      authenticator: oauth2
+      app_id: ""                                          # Application id from SSO Digital Energy
+      app_secret: "{{ response.data.password }}"          # API key from SSO Digital Energy
+      controller_url: "https://cloud.digitalenergy.online" 
+      name: hashivault_read_example
+      cpu: 2
+      ram: 2048
+      boot_disk: 10
+      image_name: "DECS Ubuntu 18.04 v1.2.3"              #Name of OS image
+      networks:
+        - type: VINS
+          id: 99                                          #VINS id
+      tags: "Ansible hashivault_read example"
+      state: present
+      rg_id: 99                                           #Resource group id
+    delegate_to: localhost
+    register: simple_vm

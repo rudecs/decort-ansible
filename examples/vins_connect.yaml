@@ -1,0 +1,42 @@
+---
+#
+# DECORT vins module example
+#
+
+- hosts: localhost
+  tasks:
+  - name: obtain JWT
+    decort_jwt:
+      oauth2_url: "https://sso.digitalenergy.online"
+      validity: 1200
+    register: my_jwt
+    delegate_to: localhost
+
+  - name: print out JWT
+    debug:
+      var: my_jwt.jwt
+    delegate_to: localhost
+
+  - name: Manage ViNS at resource group level
+    decort_vins:
+      authenticator: jwt
+      jwt: "{{ my_jwt.jwt }}"
+      controller_url: "https://cloud.digitalenergy.online"
+      vins_name: "vins_connected_by_decort_vins_module"
+      state: present
+      rg_id: 98
+      connect_to:
+       - type: VINS
+         id: 864
+         ipaddr: 192.168.5.66
+         netmask: 24
+       - type: VINS
+         id: 196
+         ipaddr: 192.168.9.133
+         netmask: 24
+    register: managed_vins
+
+  - name: print VINS facter
+    debug:
+      msg: "{{managed_vins.facts.password}}"
+    when: managed_vins.facts.password is defined
