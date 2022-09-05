@@ -2051,8 +2051,27 @@ class DecortController(object):
                                       "response {}.").format(vins_id, api_resp.status_code, api_resp.reason)
 
         return ret_vins_id, ret_vins_dict
+    def _rg_listvins(self,rg_id):
+        """List all ViNS in the resource group
+            @param (int) rg_id: id onr resource group
+        """
+        if not rg_id:
+            self.result['failed'] = True
+            self.result['msg'] = "_rg_listvins(): zero RG ID specified."
+            self.amodule.fail_json(**self.result)
 
-    def vins_find(self, vins_id, vins_name="", account_id=0, rg_id=0, check_state=True):
+        api_params = dict(rgId=rg_id, )
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/listVins", api_params)
+        if api_resp.status_code == 200:
+            ret_rg_vins_list = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("rg_listvins(): failed to get RG by ID {}. HTTP code {}, "
+                                      "response {}.").format(rg_id, api_resp.status_code, api_resp.reason)
+            return []
+
+        return ret_rg_vins_list
+    
+    def vins_find(self, vins_id, vins_name="", account_id=0, rg_id=0, rg_facts="", check_state=True):
         """Find specified ViNS. 
        
         @param (int) vins_id: ID of the ViNS. If non-zero vins_id is specified, all other arguments 
@@ -2093,29 +2112,29 @@ class DecortController(object):
         elif vins_name != "":
             if rg_id > 0:
                 # search for ViNS at RG level
-                validated_id, validated_facts = self._rg_get_by_id(rg_id)
-                if not validated_id:
-                    self.result['failed'] = True
-                    self.result['msg'] = "vins_find(): cannot find RG ID {}.".format(rg_id)
-                    self.amodule.fail_json(**self.result)
-                # NOTE: RG's 'vins' attribute does not list destroyed ViNSes! 
-                for runner in validated_facts['vins']:
-                    # api_params['vinsId'] = runner
-                    ret_vins_id, ret_vins_facts = self._vins_get_by_id(runner)
-                    if ret_vins_id and ret_vins_facts['name'] == vins_name:
+                # validated_id, validated_facts = self._rg_get_by_id(rg_id)
+                # if not validated_id:
+                #     self.result['failed'] = True
+                #     self.result['msg'] = "vins_find(): cannot find RG ID {}.".format(rg_id)
+                #     self.amodule.fail_json(**self.result)
+                # # NOTE: RG's 'vins' attribute does not list destroyed ViNSes! 
+                list_vins = self._rg_listvins(rg_id)
+                for vins in list_vins:
+                    if vins['name'] == vins_name:
+                        ret_vins_id, ret_vins_facts = self._vins_get_by_id(vins['id'])
                         if not check_state or ret_vins_facts['status'] not in VINS_INVALID_STATES:
                             return ret_vins_id, ret_vins_facts
                         else:
                             return 0, None
             elif account_id > 0:
                 # search for ViNS at account level
-                validated_id, validated_facts = self.account_find("", account_id)
-                if not validated_id:
-                    self.result['failed'] = True
-                    self.result['msg'] = "vins_find(): cannot find Account ID {}.".format(account_id)
-                    self.amodule.fail_json(**self.result)
+                # validated_id, validated_facts = self.account_find("", account_id)
+                # if not validated_id:
+                #     self.result['failed'] = True
+                #     self.result['msg'] = "vins_find(): cannot find Account ID {}.".format(account_id)
+                #     self.amodule.fail_json(**self.result)
                 # NOTE: account's 'vins' attribute does not list destroyed ViNSes! 
-                for runner in validated_facts['vins']:
+                for runner in rg_facts['vins']:
                     # api_params['vinsId'] = runner
                     ret_vins_id, ret_vins_facts = self._vins_get_by_id(runner)
                     if ret_vins_id and ret_vins_facts['name'] == vins_name:
@@ -2296,7 +2315,7 @@ class DecortController(object):
                                                                               desired_state)
         return
 
-    def vins_update(self, vins_dict, ext_net_id, ext_ip_addr=""):
+    def vins_update_extnet(self, vins_dict, ext_net_id, ext_ip_addr=""):
         """Update ViNS. Currently only updates to the external network connection settings and
         external IP address assignment are implemented.
         Note that as ViNS created at account level cannot have external connections, attempt 
@@ -2318,7 +2337,7 @@ class DecortController(object):
 
         if self.amodule.check_mode:
             self.result['failed'] = False
-            self.result['msg'] = ("vins_update() in check mode: updating ViNS ID {}, name '{}' "
+            self.result['msg'] = ("vins_update_extnet() in check mode: updating ViNS ID {}, name '{}' "
                                   "was requested.").format(vins_dict['id'], vins_dict['name'])
             return
 
@@ -2373,10 +2392,16 @@ class DecortController(object):
                                                                                                      gw_config[
                                                                                                          'ext_net_id']) 
         return
-    def vins_update_mgmt(self, vins_dict, mgmtaddr=""):
+    def vins_update_mgmt(self, vins_dict, mgmtaddr=[]):
         
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_update_mgmt")
         
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("vins_update_mgmt() in check mode: updating ViNS ID {}, name '{}' "
+                                  "was requested.").format(vins_dict['id'], vins_dict['name'])
+            return
+
         if self.amodule.params['config_save'] and vins_dict['VNFDev']['customPrecfg']:
             # only save config,no other modifictaion
             self.result['changed'] = True
@@ -2386,13 +2411,12 @@ class DecortController(object):
             return
         
         for iface in vins_dict['VNFDev']['interfaces']:
-            if iface['ipAddress'] == mgmtaddr:
-                if  not iface['listenSsh']:
-                    self._vins_vnf_addmgmtaddr(vins_dict['VNFDev']['id'],mgmtaddr)
-                    self.result['changed'] = True
-                    self.result['failed'] = False
-            elif mgmtaddr =="":
-                if iface['listenSsh'] and iface['name'] != "ens9":
+            if iface['ipAddress'] in mgmtaddr and not iface['listenSsh']:
+                self._vins_vnf_addmgmtaddr(vins_dict['VNFDev']['id'],iface['ipAddress'])
+                self.result['changed'] = True
+                self.result['failed'] = False
+            elif iface['ipAddress'] not in mgmtaddr and iface['listenSsh']:
+                if iface['name'] != "ens9":
                     self._vins_vnf_delmgmtaddr(vins_dict['VNFDev']['id'],iface['ipAddress'])
                     self.result['changed'] = True
                     self.result['failed'] = False
@@ -2411,13 +2435,15 @@ class DecortController(object):
     
     def vins_update_ifaces(self,vins_dict,vinses=""):
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_update_ifaces")
-        existed_conn_ip = []
-        #vnf_dict = self._get_vnf_by_id(vins_dict['VNFDev']['id'])
-        list_account_vins = self._get_all_account_vinses(vins_dict['VNFDev']['accountId'])
-        list_account_vinsid = [rec['id'] for rec in list_account_vins]
-        list_ifaces_ip = [rec['ipaddr'] for rec in vinses]
-        vins_inner = [rec['id'] for rec in vinses]
-        vins_outer = [rec['id'] for rec in list_account_vins]    
+        
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("vins_update_iface() in check mode: updating ViNS ID {}, name '{}' "
+                                  "was requested.").format(vins_dict['id'], vins_dict['name'])
+            return
+        
+        list_ifaces_ip = [rec['ipaddr'] for rec in vinses]   
+        vinsid_not_existed = []
         for iface in vins_dict['VNFDev']['interfaces']:
             if iface['connType'] == "VXLAN" and iface['type'] == "CUSTOM":
                 if iface['ipAddress'] not in list_ifaces_ip:
@@ -2425,19 +2451,30 @@ class DecortController(object):
                     self.result['changed'] = True
                     self.result['failed'] = False
                 else:
-                    existed_conn_ip.append(iface['ipAddress'])
+                    #existed_conn_ip.append(iface['ipAddress'])
+                    vinses = list(filter(lambda i: i['ipaddr']!=iface['ipAddress'],vinses))
 
+        if not vinses:
+            return
+        list_account_vins = self._get_all_account_vinses(vins_dict['VNFDev']['accountId'])
+        list_account_vinsid = [rec['id'] for rec in list_account_vins]
         for vins in vinses:
             if vins['id'] in list_account_vinsid:
                 _,v_dict = self._vins_get_by_id(vins['id'])
-                if vins['ipaddr'] not in existed_conn_ip: 
-                    self._vnf_iface_add(vins_dict['VNFDev']['id'],v_dict['vxlanId'],vins['ipaddr'],vins['netmask'])
-                    self.result['changed'] = True
-                    self.result['failed'] = False  
+                    #TODO: vins reservation
+                self._vnf_iface_add(vins_dict['VNFDev']['id'],v_dict['vxlanId'],vins['ipaddr'],vins['netmask'])
+                self.result['changed'] = True
+                self.result['failed'] = False
+            else:
+                vinsid_not_existed.append(vins['id'])
+        if vinsid_not_existed:   
+            self.result['warning'] = ("List ViNS id: {} that not created on account id: {}").format(
+                                    vinsid_not_existed,
+                                    vins_dict['VNFDev']['accountId']
+                                    )
         return
 
     def _vnf_iface_add(self,arg_devid,arg_vxlanid,arg_ipaddr,arg_netmask="24",arg_defgw=""):
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "_vnf_iface_add")
         api_params = dict(
             devId=arg_devid,
             ifType="CUSTOM",
@@ -2473,7 +2510,6 @@ class DecortController(object):
         return ret_vnf_dict
 
     def _get_all_account_vinses(self,acc_id):
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "get_all_account_vinses")
         api_params = dict(accountId=acc_id)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/listVins", api_params)
         if api_resp.status_code == 200:
@@ -2484,8 +2520,6 @@ class DecortController(object):
         return ret_listvins_dict
 
     def _vins_vnf_addmgmtaddr(self,dev_id,mgmtip):
-        
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_addmgmtaddr")
         api_params = dict(devId=dev_id,ip=mgmtip)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/addMgmtAddr", api_params)
         if api_resp.status_code == 200:
@@ -2497,8 +2531,6 @@ class DecortController(object):
         return
     
     def _vins_vnf_delmgmtaddr(self,dev_id,mgmtip):
-        
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_delmgmtaddr")
         api_params = dict(devId=dev_id,ip=mgmtip)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/delMgmtAddr", api_params)
         if api_resp.status_code == 200:
@@ -2510,7 +2542,6 @@ class DecortController(object):
         return
 
     def _vins_vnf_customconfig_set(self,dev_id,arg_mode=True):
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_customconfig_set")
         api_params = dict(devId=dev_id,mode=arg_mode)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/customSet", api_params)
         if api_resp.status_code == 200:
@@ -2522,7 +2553,6 @@ class DecortController(object):
         return
     
     def _vins_vnf_config_save(self,dev_id):
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_config_save")
         api_params = dict(devId=dev_id)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/configSave", api_params)
         if api_resp.status_code == 200:
@@ -2531,12 +2561,6 @@ class DecortController(object):
         else:
             self.result['warning'] = ("_vins_vnf_config_set(): failed to Save configuration on the VNF device. {}. HTTP code {}, "
                                       "response {}.").format(dev_id,api_resp.status_code, api_resp.reason)
-        return
-    
-    def vins_vnf_ifaceadd(self):
-        return
-    
-    def vins_vnf_ifaceremove(self):
         return
 
     ##############################
@@ -3146,7 +3170,7 @@ class DecortController(object):
             return
 
         api_params = dict(k8sId=k8s_id,
-                          permanently=False,
+                          permanently=permanently,
                           )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
@@ -3238,9 +3262,11 @@ class DecortController(object):
                 ret_info = json.loads(api_get_resp.content.decode('utf8'))
                 if api_get_resp.status_code == 200:
                     if ret_info['status'] in ["PROCESSING", "SCHEDULED"]:
+                        self.result['msg'] = ("k8s_provision(): Can't create cluster")
                         self.result['failed'] = False
                         time.sleep(30)
                     elif ret_info['status'] == "ERROR":
+                        self.result['msg'] = ("k8s_provision(): Can't create cluster")
                         self.result['failed'] = True
                         return
                     elif ret_info['status'] == "OK":
@@ -3250,10 +3276,13 @@ class DecortController(object):
                     else:
                         k8s_id = ret_info['status']
                 else:
+                    self.result['msg'] = ("k8s_provision(): Can't create cluster")
                     self.result['failed'] = True
             # Timeout
+            self.result['msg'] = ("k8s_provision(): Can't create cluster")
             self.result['failed'] = True
         else:
+            self.result['msg'] = ("k8s_provision(): Can't create cluster")
             self.result['failed'] = True
         return
 
@@ -3283,15 +3312,16 @@ class DecortController(object):
         
         for rec_inn in arg_k8swg['k8sGroups']['workers']:
             for rec_out in arg_modwg:
-                if rec_inn['num'] != rec_out['num'] and rec_out['num'] != 0:
-                    count = rec_inn['num']-rec_out['num']
-                    cmp_list = []
-                    if count > 0:
-                        for cmp in rec_inn['detailedInfo'][:count]:
-                            cmp_list.append(cmp['id'])
-                        wg_moddel_list.append({rec_inn['id']:cmp_list})
-                    if count < 0:
-                        wg_modadd_list.append({rec_inn['id']:abs(count)})
+                if rec_inn['name'] == rec_out['name']:
+                    if rec_inn['num'] != rec_out['num'] and rec_out['num'] != 0:
+                        count = rec_inn['num']-rec_out['num']
+                        cmp_list = []
+                        if count > 0:
+                            for cmp in rec_inn['detailedInfo'][-count:]:
+                                cmp_list.append(cmp['id'])
+                            wg_moddel_list.append({rec_inn['id']:cmp_list})
+                        if count < 0:
+                            wg_modadd_list.append({rec_inn['id']:abs(count)})
 
         if wg_del_list:
             for wgid in wg_del_list: 
@@ -3335,15 +3365,17 @@ class DecortController(object):
         api_params = dict(includeDisabled=False)
 
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8ci/list", api_params)
-        
+        k8ci_id_present = False
         if api_resp.status_code == 200:
             ret_k8ci_list = json.loads(api_resp.content.decode('utf8'))
             for k8ci_item in ret_k8ci_list:
                 if k8ci_item['id'] == arg_k8ci_id:
+                    k8ci_id_present = True
                     break
-                else:
+                
+            if k8ci_id_present == False:
                     self.result['failed'] = True
-                    self.result['msg'] = "k8s_k8ci_find(): cannot find ID."
+                    self.result['msg'] = ("Cannot find k8ci id: {}.").format(arg_k8ci_id)
                     self.amodule.fail_json(**self.result)  
         else:
             self.result['failed'] = True
