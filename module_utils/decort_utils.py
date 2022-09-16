@@ -785,7 +785,7 @@ class DecortController(object):
         Note: when Ansible is run in check mode method will return 0.
         """
 
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "kvmvm_provision")
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "kvmvm_provision2")
 
         if self.amodule.check_mode:
             self.result['failed'] = False
@@ -2051,8 +2051,27 @@ class DecortController(object):
                                       "response {}.").format(vins_id, api_resp.status_code, api_resp.reason)
 
         return ret_vins_id, ret_vins_dict
+    def _rg_listvins(self,rg_id):
+        """List all ViNS in the resource group
+            @param (int) rg_id: id onr resource group
+        """
+        if not rg_id:
+            self.result['failed'] = True
+            self.result['msg'] = "_rg_listvins(): zero RG ID specified."
+            self.amodule.fail_json(**self.result)
 
-    def vins_find(self, vins_id, vins_name="", account_id=0, rg_id=0, check_state=True):
+        api_params = dict(rgId=rg_id, )
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/listVins", api_params)
+        if api_resp.status_code == 200:
+            ret_rg_vins_list = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("rg_listvins(): failed to get RG by ID {}. HTTP code {}, "
+                                      "response {}.").format(rg_id, api_resp.status_code, api_resp.reason)
+            return []
+
+        return ret_rg_vins_list
+    
+    def vins_find(self, vins_id, vins_name="", account_id=0, rg_id=0, rg_facts="", check_state=True):
         """Find specified ViNS. 
        
         @param (int) vins_id: ID of the ViNS. If non-zero vins_id is specified, all other arguments 
@@ -2093,29 +2112,29 @@ class DecortController(object):
         elif vins_name != "":
             if rg_id > 0:
                 # search for ViNS at RG level
-                validated_id, validated_facts = self._rg_get_by_id(rg_id)
-                if not validated_id:
-                    self.result['failed'] = True
-                    self.result['msg'] = "vins_find(): cannot find RG ID {}.".format(rg_id)
-                    self.amodule.fail_json(**self.result)
-                # NOTE: RG's 'vins' attribute does not list destroyed ViNSes! 
-                for runner in validated_facts['vins']:
-                    # api_params['vinsId'] = runner
-                    ret_vins_id, ret_vins_facts = self._vins_get_by_id(runner)
-                    if ret_vins_id and ret_vins_facts['name'] == vins_name:
+                # validated_id, validated_facts = self._rg_get_by_id(rg_id)
+                # if not validated_id:
+                #     self.result['failed'] = True
+                #     self.result['msg'] = "vins_find(): cannot find RG ID {}.".format(rg_id)
+                #     self.amodule.fail_json(**self.result)
+                # # NOTE: RG's 'vins' attribute does not list destroyed ViNSes! 
+                list_vins = self._rg_listvins(rg_id)
+                for vins in list_vins:
+                    if vins['name'] == vins_name:
+                        ret_vins_id, ret_vins_facts = self._vins_get_by_id(vins['id'])
                         if not check_state or ret_vins_facts['status'] not in VINS_INVALID_STATES:
                             return ret_vins_id, ret_vins_facts
                         else:
                             return 0, None
             elif account_id > 0:
                 # search for ViNS at account level
-                validated_id, validated_facts = self.account_find("", account_id)
-                if not validated_id:
-                    self.result['failed'] = True
-                    self.result['msg'] = "vins_find(): cannot find Account ID {}.".format(account_id)
-                    self.amodule.fail_json(**self.result)
+                # validated_id, validated_facts = self.account_find("", account_id)
+                # if not validated_id:
+                #     self.result['failed'] = True
+                #     self.result['msg'] = "vins_find(): cannot find Account ID {}.".format(account_id)
+                #     self.amodule.fail_json(**self.result)
                 # NOTE: account's 'vins' attribute does not list destroyed ViNSes! 
-                for runner in validated_facts['vins']:
+                for runner in rg_facts['vins']:
                     # api_params['vinsId'] = runner
                     ret_vins_id, ret_vins_facts = self._vins_get_by_id(runner)
                     if ret_vins_id and ret_vins_facts['name'] == vins_name:
@@ -2296,7 +2315,7 @@ class DecortController(object):
                                                                               desired_state)
         return
 
-    def vins_update(self, vins_dict, ext_net_id, ext_ip_addr=""):
+    def vins_update_extnet(self, vins_dict, ext_net_id, ext_ip_addr=""):
         """Update ViNS. Currently only updates to the external network connection settings and
         external IP address assignment are implemented.
         Note that as ViNS created at account level cannot have external connections, attempt 
@@ -2318,7 +2337,7 @@ class DecortController(object):
 
         if self.amodule.check_mode:
             self.result['failed'] = False
-            self.result['msg'] = ("vins_update() in check mode: updating ViNS ID {}, name '{}' "
+            self.result['msg'] = ("vins_update_extnet() in check mode: updating ViNS ID {}, name '{}' "
                                   "was requested.").format(vins_dict['id'], vins_dict['name'])
             return
 
@@ -2373,10 +2392,16 @@ class DecortController(object):
                                                                                                      gw_config[
                                                                                                          'ext_net_id']) 
         return
-    def vins_update_mgmt(self, vins_dict, mgmtaddr=""):
+    def vins_update_mgmt(self, vins_dict, mgmtaddr=[]):
         
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_update_mgmt")
         
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("vins_update_mgmt() in check mode: updating ViNS ID {}, name '{}' "
+                                  "was requested.").format(vins_dict['id'], vins_dict['name'])
+            return
+
         if self.amodule.params['config_save'] and vins_dict['VNFDev']['customPrecfg']:
             # only save config,no other modifictaion
             self.result['changed'] = True
@@ -2386,13 +2411,12 @@ class DecortController(object):
             return
         
         for iface in vins_dict['VNFDev']['interfaces']:
-            if iface['ipAddress'] == mgmtaddr:
-                if  not iface['listenSsh']:
-                    self._vins_vnf_addmgmtaddr(vins_dict['VNFDev']['id'],mgmtaddr)
-                    self.result['changed'] = True
-                    self.result['failed'] = False
-            elif mgmtaddr =="":
-                if iface['listenSsh'] and iface['name'] != "ens9":
+            if iface['ipAddress'] in mgmtaddr and not iface['listenSsh']:
+                self._vins_vnf_addmgmtaddr(vins_dict['VNFDev']['id'],iface['ipAddress'])
+                self.result['changed'] = True
+                self.result['failed'] = False
+            elif iface['ipAddress'] not in mgmtaddr and iface['listenSsh']:
+                if iface['name'] != "ens9":
                     self._vins_vnf_delmgmtaddr(vins_dict['VNFDev']['id'],iface['ipAddress'])
                     self.result['changed'] = True
                     self.result['failed'] = False
@@ -2411,13 +2435,15 @@ class DecortController(object):
     
     def vins_update_ifaces(self,vins_dict,vinses=""):
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_update_ifaces")
-        existed_conn_ip = []
-        #vnf_dict = self._get_vnf_by_id(vins_dict['VNFDev']['id'])
-        list_account_vins = self._get_all_account_vinses(vins_dict['VNFDev']['accountId'])
-        list_account_vinsid = [rec['id'] for rec in list_account_vins]
-        list_ifaces_ip = [rec['ipaddr'] for rec in vinses]
-        vins_inner = [rec['id'] for rec in vinses]
-        vins_outer = [rec['id'] for rec in list_account_vins]    
+        
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("vins_update_iface() in check mode: updating ViNS ID {}, name '{}' "
+                                  "was requested.").format(vins_dict['id'], vins_dict['name'])
+            return
+        
+        list_ifaces_ip = [rec['ipaddr'] for rec in vinses]   
+        vinsid_not_existed = []
         for iface in vins_dict['VNFDev']['interfaces']:
             if iface['connType'] == "VXLAN" and iface['type'] == "CUSTOM":
                 if iface['ipAddress'] not in list_ifaces_ip:
@@ -2425,19 +2451,30 @@ class DecortController(object):
                     self.result['changed'] = True
                     self.result['failed'] = False
                 else:
-                    existed_conn_ip.append(iface['ipAddress'])
+                    #existed_conn_ip.append(iface['ipAddress'])
+                    vinses = list(filter(lambda i: i['ipaddr']!=iface['ipAddress'],vinses))
 
+        if not vinses:
+            return
+        list_account_vins = self._get_all_account_vinses(vins_dict['VNFDev']['accountId'])
+        list_account_vinsid = [rec['id'] for rec in list_account_vins]
         for vins in vinses:
             if vins['id'] in list_account_vinsid:
                 _,v_dict = self._vins_get_by_id(vins['id'])
-                if vins['ipaddr'] not in existed_conn_ip: 
-                    self._vnf_iface_add(vins_dict['VNFDev']['id'],v_dict['vxlanId'],vins['ipaddr'],vins['netmask'])
-                    self.result['changed'] = True
-                    self.result['failed'] = False  
+                    #TODO: vins reservation
+                self._vnf_iface_add(vins_dict['VNFDev']['id'],v_dict['vxlanId'],vins['ipaddr'],vins['netmask'])
+                self.result['changed'] = True
+                self.result['failed'] = False
+            else:
+                vinsid_not_existed.append(vins['id'])
+        if vinsid_not_existed:   
+            self.result['warning'] = ("List ViNS id: {} that not created on account id: {}").format(
+                                    vinsid_not_existed,
+                                    vins_dict['VNFDev']['accountId']
+                                    )
         return
 
     def _vnf_iface_add(self,arg_devid,arg_vxlanid,arg_ipaddr,arg_netmask="24",arg_defgw=""):
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "_vnf_iface_add")
         api_params = dict(
             devId=arg_devid,
             ifType="CUSTOM",
@@ -2473,7 +2510,6 @@ class DecortController(object):
         return ret_vnf_dict
 
     def _get_all_account_vinses(self,acc_id):
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "get_all_account_vinses")
         api_params = dict(accountId=acc_id)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/account/listVins", api_params)
         if api_resp.status_code == 200:
@@ -2484,8 +2520,6 @@ class DecortController(object):
         return ret_listvins_dict
 
     def _vins_vnf_addmgmtaddr(self,dev_id,mgmtip):
-        
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_addmgmtaddr")
         api_params = dict(devId=dev_id,ip=mgmtip)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/addMgmtAddr", api_params)
         if api_resp.status_code == 200:
@@ -2497,8 +2531,6 @@ class DecortController(object):
         return
     
     def _vins_vnf_delmgmtaddr(self,dev_id,mgmtip):
-        
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_delmgmtaddr")
         api_params = dict(devId=dev_id,ip=mgmtip)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/delMgmtAddr", api_params)
         if api_resp.status_code == 200:
@@ -2510,7 +2542,6 @@ class DecortController(object):
         return
 
     def _vins_vnf_customconfig_set(self,dev_id,arg_mode=True):
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_customconfig_set")
         api_params = dict(devId=dev_id,mode=arg_mode)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/customSet", api_params)
         if api_resp.status_code == 200:
@@ -2522,7 +2553,6 @@ class DecortController(object):
         return
     
     def _vins_vnf_config_save(self,dev_id):
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "vins_vnf_config_save")
         api_params = dict(devId=dev_id)
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudbroker/vnfdev/configSave", api_params)
         if api_resp.status_code == 200:
@@ -2532,12 +2562,6 @@ class DecortController(object):
             self.result['warning'] = ("_vins_vnf_config_set(): failed to Save configuration on the VNF device. {}. HTTP code {}, "
                                       "response {}.").format(dev_id,api_resp.status_code, api_resp.reason)
         return
-    
-    def vins_vnf_ifaceadd(self):
-        return
-    
-    def vins_vnf_ifaceremove(self):
-        return
 
     ##############################
     #
@@ -2545,7 +2569,7 @@ class DecortController(object):
     #
     ##############################
 
-    def disk_delete(self, disk_id, permanently=False, force_detach=False):
+    def disk_delete(self, disk_id, permanently, detach, reason):
         """Deletes specified Disk.
 
         @param (int) disk_id: ID of the Disk to be deleted.
@@ -2562,8 +2586,9 @@ class DecortController(object):
             return
 
         api_params = dict(diskId=disk_id,
-                          detach=force_detach,
-                          permanently=permanently, )
+                          detach=detach,
+                          permanently=permanently,
+                          reason=reason)
         self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -2602,7 +2627,7 @@ class DecortController(object):
 
         return ret_disk_id, ret_disk_dict
 
-    def disk_find(self, disk_id, disk_name="", account_id=0, check_state=False):
+    def disk_find(self, disk_id, name, account_id, check_state=False):
         """Find specified Disk. 
        
         @param (int) disk_id: ID of the Disk. If non-zero disk_id is specified, all other arguments 
@@ -2638,11 +2663,11 @@ class DecortController(object):
                 self.result['failed'] = True
                 self.result['msg'] = "disk_find(): cannot find Disk by ID {}.".format(disk_id)
                 self.amodule.fail_json(**self.result)
-            if not check_state or ret_disk_facts['status'] not in DISK_INVALID_STATES:
+            if not check_state or ret_disk_facts['status']:
                 return ret_disk_id, ret_disk_facts
             else:
                 return 0, None
-        elif disk_name != "":
+        elif name != "":
             if account_id > 0:
                 api_params = dict(accountId=account_id)
                 api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/list", api_params)
@@ -2650,15 +2675,15 @@ class DecortController(object):
                 disks_list = json.loads(api_resp.content.decode('utf8'))
                 for runner in disks_list:
                     # return the first disk of the specified name that fulfills status matching rule
-                    if runner['name'] == disk_name:
-                        if not check_state or runner['status'] not in DISK_INVALID_STATES:
+                    if runner['name'] == name:
+                        if not check_state or runner['status']:
                             return runner['id'], runner
                 else:
                     return 0, None
             else:  # we are missing meaningful account_id - fail the module
                 self.result['failed'] = True
                 self.result['msg'] = ("disk_find(): cannot find Disk by name '{}' "
-                                      "when no account ID specified.").format(disk_name)
+                                      "when no account ID specified.").format(name)
                 self.amodule.fail_json(**self.result)
         else:  # Disk ID is 0 and Disk name is emtpy - fail the module
             self.result['failed'] = True
@@ -2667,55 +2692,40 @@ class DecortController(object):
 
         return 0, None
 
-    def disk_provision(self, disk_name, size, account_id, sep_id, pool_name="", desc="", location=""):
+    def disk_create(self, accountId, gid, name, description, size, type, iops, sep_id, pool):
         """Provision Disk according to the specified arguments.
         Note that disks created by this method will be of type 'D' (data disks).
         If critical error occurs the embedded call to API function will abort further execution 
         of the script and relay error to Ansible.
 
-        @param (string) disk_name: name to assign to the Disk.
+        @param (string) name: name to assign to the Disk.
         @param (int) size: size of the disk in GB.
-        @param (int) account_id: ID of the account where disk will belong.
+        @param (int) accountId: ID of the account where disk will belong.
         @param (int) sep_id: ID of the SEP (Storage Endpoint Provider), where disk will be created.
         @param (string) pool: optional name of the pool, where this disk will be created.
-        @param (string) desc: optional text description of this disk. 
-        @param (string) location: optional location, where disk resources will be provided. If empty
-        string is specified the disk will be created in the default location under DECORT controller.
+        @param (string) description: optional text description of this disk. 
+        @param (int) gid: optional Grid id, if specified the disk will be created in selected
+        location.
 
         @return: ID of the newly created Disk (in Ansible check mode 0 is returned).
         """
 
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_provision")
-
-        if self.amodule.check_mode:
-            self.result['failed'] = False
-            self.result['msg'] = "disk_provision() in check mode: create Disk name '{}' was requested.".format(
-                disk_name)
-            return 0
-
-        target_gid = self.gid_get(location)
-        if not target_gid:
-            self.result['failed'] = True
-            self.result['msg'] = "disk_provision() failed to obtain Grid ID for default location."
-            self.amodule.fail_json(**self.result)
-
-        ret_disk_id = 0
-        api_params = dict(accountId=account_id,
-                          gid=target_gid,
-                          name=disk_name,
-                          desc=desc,
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_creation")
+        api_params = dict(accountId=accountId,
+                          gid=gid,
+                          name=name,
+                          description=description,
                           size=size,
-                          type='D',
-                          sepId=sep_id, )
-        if pool_name != "":
-            api_params['pool'] = pool_name
+                          type=type,
+                          iops=iops,
+                          sepId=sep_id,
+                          pool=pool )
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/create", api_params)
         if api_resp.status_code == 200:
             ret_disk_id = json.loads(api_resp.content.decode('utf8'))
 
         self.result['failed'] = False
         self.result['changed'] = True
-
         return ret_disk_id
 
     def disk_resize(self, disk_facts, new_size):
@@ -2768,6 +2778,48 @@ class DecortController(object):
         self.result['changed'] = True
         disk_facts['sizeMax'] = new_size
 
+        return
+
+    def disk_limitIO(self, limits, diskId):
+        """Limits already created Disk identified by its ID. 
+        @param (dict) limits: Dictionary with limits.
+        @param (int) diskId: ID of the Disk to limit.
+        @returns: nothing on success. On error this method will abort module execution.
+        """        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_limitIO")
+        api_params = dict(diskId=diskId,
+                          total_bytes_sec=limits['total_bytes_sec'],
+                          read_bytes_sec=limits['read_bytes_sec'],
+                          write_bytes_sec=limits['write_bytes_sec'],
+                          total_iops_sec=limits['total_iops_sec'],
+                          read_iops_sec=limits['read_iops_sec'],
+                          write_iops_sec=limits['write_iops_sec'],
+                          total_bytes_sec_max=limits['total_bytes_sec_max'],
+                          read_bytes_sec_max=limits['read_bytes_sec_max'],
+                          write_bytes_sec_max=limits['write_bytes_sec_max'],
+                          total_iops_sec_max=limits['total_iops_sec_max'],
+                          read_iops_sec_max=limits['read_iops_sec_max'],
+                          write_iops_sec_max=limits['write_iops_sec_max'],
+                          size_iops_sec=limits['size_iops_sec'])
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/limitIO", api_params)
+        self.result['msg'] = "Specified Disk ID {} limited successfully.".format(self.validated_disk_id)
+        return
+    
+    def disk_rename(self, diskId, name):
+        """Renames disk to the specified new name.
+
+        @param disk_id: ID of the Disk to rename.
+        @param name: New name.
+
+        @returns: nothing on success. On error this method will abort module execution.
+        """
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_rename")
+        api_params = dict(diskId=diskId,
+                          name=name)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/rename", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
         return
 
     def disk_restore(self, disk_id):
@@ -3146,7 +3198,7 @@ class DecortController(object):
             return
 
         api_params = dict(k8sId=k8s_id,
-                          permanently=False,
+                          permanently=permanently,
                           )
         self.decort_api_call(requests.post, "/restmachine/cloudapi/k8s/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
@@ -3238,9 +3290,11 @@ class DecortController(object):
                 ret_info = json.loads(api_get_resp.content.decode('utf8'))
                 if api_get_resp.status_code == 200:
                     if ret_info['status'] in ["PROCESSING", "SCHEDULED"]:
+                        self.result['msg'] = ("k8s_provision(): Can't create cluster")
                         self.result['failed'] = False
                         time.sleep(30)
                     elif ret_info['status'] == "ERROR":
+                        self.result['msg'] = ("k8s_provision(): Can't create cluster")
                         self.result['failed'] = True
                         return
                     elif ret_info['status'] == "OK":
@@ -3250,10 +3304,13 @@ class DecortController(object):
                     else:
                         k8s_id = ret_info['status']
                 else:
+                    self.result['msg'] = ("k8s_provision(): Can't create cluster")
                     self.result['failed'] = True
             # Timeout
+            self.result['msg'] = ("k8s_provision(): Can't create cluster")
             self.result['failed'] = True
         else:
+            self.result['msg'] = ("k8s_provision(): Can't create cluster")
             self.result['failed'] = True
         return
 
@@ -3283,15 +3340,16 @@ class DecortController(object):
         
         for rec_inn in arg_k8swg['k8sGroups']['workers']:
             for rec_out in arg_modwg:
-                if rec_inn['num'] != rec_out['num'] and rec_out['num'] != 0:
-                    count = rec_inn['num']-rec_out['num']
-                    cmp_list = []
-                    if count > 0:
-                        for cmp in rec_inn['detailedInfo'][:count]:
-                            cmp_list.append(cmp['id'])
-                        wg_moddel_list.append({rec_inn['id']:cmp_list})
-                    if count < 0:
-                        wg_modadd_list.append({rec_inn['id']:abs(count)})
+                if rec_inn['name'] == rec_out['name']:
+                    if rec_inn['num'] != rec_out['num'] and rec_out['num'] != 0:
+                        count = rec_inn['num']-rec_out['num']
+                        cmp_list = []
+                        if count > 0:
+                            for cmp in rec_inn['detailedInfo'][-count:]:
+                                cmp_list.append(cmp['id'])
+                            wg_moddel_list.append({rec_inn['id']:cmp_list})
+                        if count < 0:
+                            wg_modadd_list.append({rec_inn['id']:abs(count)})
 
         if wg_del_list:
             for wgid in wg_del_list: 
@@ -3335,15 +3393,17 @@ class DecortController(object):
         api_params = dict(includeDisabled=False)
 
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/k8ci/list", api_params)
-        
+        k8ci_id_present = False
         if api_resp.status_code == 200:
             ret_k8ci_list = json.loads(api_resp.content.decode('utf8'))
             for k8ci_item in ret_k8ci_list:
                 if k8ci_item['id'] == arg_k8ci_id:
+                    k8ci_id_present = True
                     break
-                else:
+                
+            if k8ci_id_present == False:
                     self.result['failed'] = True
-                    self.result['msg'] = "k8s_k8ci_find(): cannot find ID."
+                    self.result['msg'] = ("Cannot find k8ci id: {}.").format(arg_k8ci_id)
                     self.amodule.fail_json(**self.result)  
         else:
             self.result['failed'] = True

@@ -157,6 +157,16 @@ options:
         - `If specified for an existing disk, and it is greater than current disk size, platform will try to resize
           the disk on the fly. Downsizing disk is not allowed.`
         required: no
+    limitIO:
+        description:
+        - Disk input / output limit, used to limit the speed of interaction with the disk.
+        required: no
+    type:
+        description:
+        - Type of the disk. 
+        - `Disks can be of the following types: "D"-Data, "B"-Boot, "T"-Tmp.`
+        default: "D"
+        required: no
     state:
         description:
         - Specify the desired state of the disk at the exit of the module.
@@ -234,103 +244,239 @@ facts:
         gid: 1001
 '''
 
+
+
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.basic import env_fallback
 
 from ansible.module_utils.decort_utils import *
 
+class decort_disk(DecortController):
+    def __init__(self,amodule):
+        super(decort_disk, self).__init__(amodule)
 
-def decort_disk_package_facts(disk_facts, check_mode=False):
-    """Package a dictionary of disk facts according to the decort_disk module specification. 
-    This dictionary will be returned to the upstream Ansible engine at the completion of 
-    the module run.
+        self.validated_account_id = 0
+        self.validated_disk_id = 0
+        self.disk_facts = None # will hold Disk facts
+        self.acc_facts = None # will hold Account facts
 
-    @param (dict) disk_facts: dictionary with Disk facts as returned by API call to .../disks/get
-    @param (bool) check_mode: boolean that tells if this Ansible module is run in check mode
-    """
+        # limitIO check for exclusive parameters
+        if amodule.params['limitIO']:
+            limit = amodule.params['limitIO']
+            if limit['total_bytes_sec'] > 0 and limit['read_bytes_sec'] > 0 or limit['write_bytes_sec'] > 0:
+                self.result['failed'] = True
+                self.result['msg'] = ("total and read/write of bytes_sec cannot be set at the same time.")
+                amodule.fail_json(**self.result)
+            elif limit['total_iops_sec'] > 0 and limit['read_iops_sec'] > 0 or limit['write_iops_sec'] > 0:
+                self.result['failed'] = True
+                self.result['msg'] = ("total and read/write of iops_sec cannot be set at the same time.")
+                amodule.fail_json(**self.result)
+            elif limit['total_bytes_sec_max'] > 0 and limit['read_bytes_sec_max'] > 0 or limit['write_bytes_sec_max'] > 0:
+                self.result['failed'] = True
+                self.result['msg'] = ("total and read/write of bytes_sec_max cannot be set at the same time.")
+                amodule.fail_json(**self.result)
+            elif limit['total_iops_sec_max'] > 0 and limit['read_iops_sec_max'] > 0 or limit['write_iops_sec_max'] > 0:
+                self.result['failed'] = True
+                self.result['msg'] = ("total and read/write of iops_sec_max cannot be set at the same time.")
+                amodule.fail_json(**self.result)
 
-    ret_dict = dict(id=0,
-                    name="none",
-                    state="CHECK_MODE",
-                    size=0,
-                    account_id=0,
-                    sep_id=0,
-                    pool="none",
-                    attached_to=0,
-                    gid=0
-                    )
 
-    if check_mode:
-        # in check mode return immediately with the default values
+        if amodule.params['account_id']:
+            self.validated_account_id = amodule.params['account_id']
+        elif amodule.params['account_name']:
+            self.validated_account_id, _ = self.account_find(amodule.params['account_name'])
+        elif not amodule.params['id'] and not amodule.params['account_name']:
+            self.result['failed'] = True
+            self.result['msg'] = ("Cannot found disk without account id or name.")
+            amodule.fail_json(**self.result)
+
+        if self.validated_account_id == 0 and not amodule.params['id']:
+            # we failed either to find or access the specified account - fail the module
+            self.result['failed'] = True
+            self.result['msg'] = ("Cannot find account '{}'").format(amodule.params['account_name'])
+            amodule.fail_json(**self.result)
+
+        if amodule.params['id'] or amodule.params['name']:
+            self.validated_disk_id, self.disk_facts = self.decort_disk_find(amodule)
+
+        else:
+            self.result['failed'] = True
+            self.result['msg'] = ("Cannot find or create disk without disk name or disk id")
+            amodule.fail_json(**self.result)
+
+
+    def decort_disk_create(self, amodule):
+        if self.disk_facts['status'] in ["DESTROYED", "PURGED"]:
+            if not amodule.params['limitIO']:
+                amodule.params['limitIO'] = self.disk_facts['iotune']
+            self.disk_id = self.disk_create(accountId=self.validated_account_id, gid=self.disk_facts['gid'], 
+                                            name=self.disk_facts['name'], description=self.disk_facts['desc'], 
+                                            size=self.disk_facts['sizeMax'], type=self.disk_facts['type'], 
+                                            iops=self.disk_facts['iotune']['total_iops_sec'], 
+                                            sep_id=self.disk_facts['sepId'], pool=self.disk_facts['pool'])
+            self.disk_facts['iotune'] = 0
+        else:
+            self.disk_id = self.disk_create(accountId=self.validated_account_id, gid=amodule.params['gid'], 
+                                            name=amodule.params['name'], description=amodule.params['description'], 
+                                            size=amodule.params['size'], type=amodule.params['type'], 
+                                            iops=amodule.params['iops'], 
+                                            sep_id=amodule.params['sep_id'], pool=amodule.params['pool'])
+        self.result['failed'] = False
+        self.result['changed'] = True
+        self.result['msg'] = ("Disk with id '{}' successfully created.").format(self.disk_id)
+        return self.disk_id
+
+    def decort_disk_delete(self, amodule):
+        self.disk_id = self.disk_delete(disk_id=self.validated_disk_id,
+                                        detach=amodule.params['force_detach'],
+                                        permanently=amodule.params['permanently'],
+                                        reason=amodule.params['reason'])
+        return
+
+
+    def decort_disk_find(self, amodule):
+        if amodule.params['id']:
+            self.disk_id, self.disk_facts = self.disk_find(disk_id=amodule.params['id'],
+                                                            name=amodule.params['name'],
+                                                            account_id=0)
+        elif amodule.params['name']:
+            self.disk_id, self.disk_facts = self.disk_find(disk_id=self.validated_disk_id,
+                                                name=amodule.params['name'], 
+                                                account_id=self.validated_account_id)
+
+        if not self.disk_id and not amodule.params['name']:
+                    self.result['failed'] = True
+                    self.result['msg'] = "Specified Disk ID {} not found.".format(amodule.params['id'])
+                    amodule.fail_json(**self.result)
+        self.result['facts'] = decort_disk.decort_disk_package_facts(self.disk_facts)
+        return self.disk_id, self.disk_facts                                              
+
+    def decort_disk_limitIO(self, amodule):
+        self.limits = amodule.params['limitIO']
+
+        self.disk_limitIO(limits = self.limits,
+                        diskId = self.validated_disk_id)
+        self.disk_facts['iotune'] = amodule.params['limitIO']
+        self.result['facts'] = decort_disk.decort_disk_package_facts(self.disk_facts)
+        return
+    
+    def decort_disk_rename(self, amodule):
+        self.disk_rename(diskId = self.validated_disk_id,
+                        name = amodule.params['name'])
+        self.disk_facts['name'] = amodule.params['name']
+        self.result['facts'] = decort_disk.decort_disk_package_facts(self.disk_facts)
+        self.result['msg'] = ("Disk with id '{}',successfully renamed to '{}'.").format(self.validated_disk_id, amodule.params['name'])
+        return
+
+    def decort_disk_package_facts(disk_facts, check_mode=False):
+        ret_dict = dict(id=0,
+                        name="none",
+                        state="CHECK_MODE",
+                        size=0,
+                        account_id=0,
+                        sep_id=0,
+                        pool="none",
+                        attached_to=0,
+                        gid=0
+                        )
+
+        if check_mode:
+            # in check mode return immediately with the default values
+            return ret_dict
+
+        if disk_facts is None:
+            # if void facts provided - change state value to ABSENT and return
+            ret_dict['state'] = "ABSENT"
+            return ret_dict
+
+        ret_dict['id'] = disk_facts['id']
+        ret_dict['name'] = disk_facts['name']
+        ret_dict['size'] = disk_facts['sizeMax']
+        ret_dict['state'] = disk_facts['status']
+        ret_dict['account_id'] = disk_facts['accountId']
+        ret_dict['sep_id'] = disk_facts['sepId']
+        ret_dict['pool'] = disk_facts['pool']
+        ret_dict['attached_to'] = disk_facts['vmid']
+        ret_dict['gid'] = disk_facts['gid']
+        ret_dict['iotune'] = disk_facts['iotune']
+
         return ret_dict
 
-    if disk_facts is None:
-        # if void facts provided - change state value to ABSENT and return
-        ret_dict['state'] = "ABSENT"
-        return ret_dict
+    def decort_disk_parameters():
+        """Build and return a dictionary of parameters expected by decort_disk module in a form accepted
+        by AnsibleModule utility class."""
 
-    ret_dict['id'] = disk_facts['id']
-    ret_dict['name'] = disk_facts['name']
-    ret_dict['size'] = disk_facts['sizeMax']
-    ret_dict['state'] = disk_facts['status']
-    ret_dict['account_id'] = disk_facts['accountId']
-    ret_dict['sep_id'] = disk_facts['sepId']
-    ret_dict['pool'] = disk_facts['pool']
-    ret_dict['attached_to'] = disk_facts['vmid']
-    ret_dict['gid'] = disk_facts['gid']
-
-    return ret_dict
-
-def decort_disk_parameters():
-    """Build and return a dictionary of parameters expected by decort_disk module in a form accepted
-    by AnsibleModule utility class."""
-
-    return dict(
-        account_id=dict(type='int', required=False, default=0),
-        account_name=dict(type='str', required=False, default=''),
-        annotation=dict(type='str', required=False, default='Disk by decort_disk'),
-        app_id=dict(type='str',
-                    required=False,
-                    fallback=(env_fallback, ['DECORT_APP_ID'])),
-        app_secret=dict(type='str',
+        return dict(
+            account_id=dict(type='int', required=False, default=0),
+            account_name=dict(type='str', required=False, default=''),
+            annotation=dict(type='str', required=False, default='Disk by decort_disk'),
+            app_id=dict(type='str',
                         required=False,
-                        fallback=(env_fallback, ['DECORT_APP_SECRET']),
-                        no_log=True),
-        authenticator=dict(type='str',
-                           required=True,
-                           choices=['legacy', 'oauth2', 'jwt']),
-        controller_url=dict(type='str', required=True),
-        id=dict(type='int', required=False, default=0),
-        name=dict(type='str', required=False),
-        force_detach=dict(type='bool', required=False, default=False),
-        jwt=dict(type='str',
-                 required=False,
-                 fallback=(env_fallback, ['DECORT_JWT']),
-                 no_log=True),
-        oauth2_url=dict(type='str',
-                        required=False,
-                        fallback=(env_fallback, ['DECORT_OAUTH2_URL'])),
-        password=dict(type='str',
+                        fallback=(env_fallback, ['DECORT_APP_ID'])),
+            app_secret=dict(type='str',
+                            required=False,
+                            fallback=(env_fallback, ['DECORT_APP_SECRET']),
+                            no_log=True),
+            authenticator=dict(type='str',
+                               required=True,
+                               choices=['legacy', 'oauth2', 'jwt']),
+            controller_url=dict(type='str', required=True),
+            id=dict(type='int', required=False, default=0),
+            name=dict(type='str', required=False),
+            force_detach=dict(type='bool', required=False, default=False),
+            jwt=dict(type='str',
+                     required=False,
+                     fallback=(env_fallback, ['DECORT_JWT']),
+                     no_log=True),
+            oauth2_url=dict(type='str',
+                            required=False,
+                            fallback=(env_fallback, ['DECORT_OAUTH2_URL'])),
+            password=dict(type='str',
+                          required=False,
+                          fallback=(env_fallback, ['DECORT_PASSWORD']),
+                          no_log=True),
+            place_with=dict(type='int', default=0),
+            pool=dict(type='str', default=''),
+            sep_id=dict(type='int', default=0),
+            gid=dict(type='int', default=0),
+            size=dict(type='int', default=0),
+            type=dict(type='str', 
+                      required=False, 
+                      default="D",
+                      choices=['B', 'D', 'T']),
+            iops=dict(type='int', default=2000),
+            limitIO=dict(type='dict',
+                options=dict(
+                    total_bytes_sec=dict(default=0,type='int'),
+                    read_bytes_sec=dict(default=0,type='int'),
+                    write_bytes_sec=dict(default=0,type='int'),
+                    total_iops_sec=dict(default=0,type='int'),
+                    read_iops_sec=dict(default=0,type='int'),
+                    write_iops_sec=dict(default=0,type='int'),
+                    total_bytes_sec_max=dict(default=0,type='int'),
+                    read_bytes_sec_max=dict(default=0,type='int'),
+                    write_bytes_sec_max=dict(default=0,type='int'),
+                    total_iops_sec_max=dict(default=0,type='int'),
+                    read_iops_sec_max=dict(default=0,type='int'),
+                    write_iops_sec_max=dict(default=0,type='int'),
+                    size_iops_sec=dict(default=0,type='int'),)),
+            permanently=dict(type='bool', required=False, default=False),
+            reason=dict(type='int', required=False),
+            description=dict(type='str', required=False,
+                             default="Disk created with Ansible Decort_disk module."),
+            state=dict(type='str',
+                       default='present',
+                       choices=['absent', 'present']),
+            user=dict(type='str',
                       required=False,
-                      fallback=(env_fallback, ['DECORT_PASSWORD']),
-                      no_log=True),
-        place_with=dict(type='int', required=False, default=0),
-        pool=dict(type='str', required=False, default=''),
-        sep_id=dict(type='int', required=False, default=0),
-        size=dict(type='int', required=False),
-        state=dict(type='str',
-                   default='present',
-                   choices=['absent', 'present']),
-        user=dict(type='str',
-                  required=False,
-                  fallback=(env_fallback, ['DECORT_USER'])),
-        verify_ssl=dict(type='bool', required=False, default=True),
-        workflow_callback=dict(type='str', required=False),
-        workflow_context=dict(type='str', required=False),
-    )
+                      fallback=(env_fallback, ['DECORT_USER'])),
+            verify_ssl=dict(type='bool', required=False, default=True),
+            workflow_callback=dict(type='str', required=False),
+            workflow_context=dict(type='str', required=False),
+        )
 
 def main():
-    module_parameters = decort_disk_parameters()
+    module_parameters = decort_disk.decort_disk_parameters()
 
     amodule = AnsibleModule(argument_spec=module_parameters,
                             supports_check_mode=True,
@@ -345,197 +491,103 @@ def main():
                             ],
                             )
 
-    decon = DecortController(amodule)
+    decon = decort_disk(amodule)
 
-    disk_id = 0
-    disk_facts = None # will hold Disk facts
-    validated_acc_id = 0
-    acc_facts = None # will hold Account facts
-
-    if amodule.params['id']:
-        # expect existing Disk with the specified ID
-        # This call to disk_find will abort the module if no Disk with such ID is present
-        disk_id, disk_facts = decon.disk_find(amodule.params['id'])
-        if not disk_id:
-            decon.result['failed'] = True
-            decon.result['msg'] = "Specified Disk ID {} not found.".format(amodule.params['id'])
-            amodule.fail_json(**decon.result)
-        validated_acc_id =disk_facts['accountId']
-    elif amodule.params['account_id'] > 0 or amodule.params['account_name'] != "":
-        # Make sure disk name is specified, if not - fail the module
-        if amodule.params['name'] == "":
-            decon.result['failed'] = True
-            decon.result['msg'] = ("Cannot manage disk if both ID is 0 and disk name is empty.")
-            amodule.fail_json(**decon.result)
-        # Specified account must be present and accessible by the user, otherwise abort the module 
-        validated_acc_id, acc_facts = decon.account_find(amodule.params['account_name'], amodule.params['account_id'])
-        if not validated_acc_id:
-            decon.result['failed'] = True
-            decon.result['msg'] = ("Current user does not have access to the requested account "
-                                    "or non-existent account specified.")
-            amodule.fail_json(**decon.result)
-        # This call to disk_find may return disk_id=0 if no Disk with this name found in 
-        disk_id, disk_facts = decon.disk_find(disk_id=0, disk_name=amodule.params['name'],
-                                                account_id=validated_acc_id,
-                                                check_state=False)
-    else: 
-        # this is "invalid arguments combination" sink
-        # if we end up here, it means that module was invoked with disk_id=0 and undefined account
-        decon.result['failed'] = True
-        if amodule.params['account_id'] == 0 and amodule.params['account_name'] == "":
-            decon.result['msg'] = "Cannot find Disk by name when account name is empty and account ID is 0."
-        if amodule.params['name'] == "":
-            decon.result['msg'] = "Cannot find Disk by empty name."
-        amodule.fail_json(**decon.result)
-
-    #
-    # Initial validation of module arguments is complete
-    #
-    # At this point non-zero disk_id means that we will be managing pre-existing Disk
-    # Otherwise we are about to create a new disk
-    #
-    # Valid Disk model statii are as follows:
-    # 
-    # "CREATED", "ASSIGNED", DELETED", "DESTROYED", "PURGED"
-    # 
-
-    disk_should_exist = False
-    target_sep_id = 0
-    # target_pool = ""
+    if decon.validated_disk_id == 0 and amodule.params['state'] == 'present':
+    # if id cannot cannot be found and have a state 'present', then create a new disk 
+        decon.validated_disk_id = decon.decort_disk_create(amodule)
+        _, decon.disk_facts = decon.decort_disk_find(amodule)
+        decon.result['changed'] = True
+        decon.result['msg'] = ("Disk with id '{}' successfully created.").format(decon.validated_disk_id)
     
-    if disk_id:
-        disk_should_exist = True
-        if disk_facts['status'] in ["MODELED", "CREATING" ]:
-            # error: nothing can be done to existing Disk in the listed statii regardless of
-            # the requested state
-            decon.result['failed'] = True
-            decon.result['changed'] = False
-            decon.result['msg'] = ("No change can be done for existing Disk ID {} because of its current "
-                                   "status '{}'").format(disk_id, disk_facts['status'])
-        elif disk_facts['status'] in ["CREATED", "ASSIGNED"]:
-            if amodule.params['state'] == 'absent':
-                decon.disk_delete(disk_id, True, amodule.params['force_detach']) # delete permanently
-                disk_facts['status'] = 'DESTROYED'
-                disk_should_exist = False
-            elif amodule.params['state'] == 'present':
-                # resize Disk as necessary & if possible
-                if decon.check_amodule_argument('size', False):
-                    decon.disk_resize(disk_facts, amodule.params['size'])
-        elif disk_facts['status'] == "DELETED":
-            if amodule.params['state'] == 'present':
-                # restore
-                decon.disk_restore(disk_id)
-                _, disk_facts = decon.disk_find(disk_id)
-                decon.disk_resize(disk_facts, amodule.params['size'])
-                disk_should_exist = True
-            elif amodule.params['state'] == 'absent':
-                # destroy permanently
-                decon.disk_delete(disk_id, permanently=True)
-                disk_facts['status'] = 'DESTROYED'
-                disk_should_exist = False
-        elif disk_facts['status'] in ["DESTROYED", "PURGED"]:
-            if amodule.params['state'] == 'present':
-                # Need to re-provision this Disk.
-                # Some attributes may change, some must stay the same:
-                # - disk name  - stays, take from disk_facts
-                # - account ID - stays, take from validated account ID
-                # - size       - may change, take from module arguments
-                # - SEP ID     - may change, build based on module arguments
-                # - pool       - may change, take from module arguments
-                # - annotation - may change, take from module arguments
-                #
-                # First validate required parameters:
-                decon.check_amodule_argument('size') # this will fail the module if size is not specified
-                target_sep_id = 0
-                if decon.check_amodule_argument('sep_id', False) and amodule.params['sep_id'] > 0:
-                    # non-zero sep_id is explicitly passed in module arguments
-                    target_sep_id = amodule.params['sep_id']
-                elif decon.check_amodule_argument('place_with', False) and amodule.params['place_with'] > 0:
-                    # request to place this disk on the same SEP as the specified OS image
-                    # validate specified OS image and assign SEP ID accordingly
-                    image_id, image_facts = decon.image_find(amodule.params['place_with'], "", 0)
-                    target_sep_id = image_facts['sepId']
-                else:
-                    # no new SEP ID is explicitly specified, and no place_with option - use sepId from the disk_facts
-                    target_sep_id = disk_facts['sepId']
-                disk_id = decon.disk_provision(disk_name=disk_facts['name'], # as this disk was found, its name is in the facts
-                                               size=amodule.params['size'],
-                                               account_id=validated_acc_id, 
-                                               sep_id=target_sep_id,
-                                               pool=amodule.params['pool'],
-                                               desc=amodule.params['annotation'],
-                                               location="")
-                disk_should_exist = True
-            elif amodule.params['state'] == 'absent':
-                # nop
-                decon.result['failed'] = False
-                decon.result['changed'] = False
-                decon.result['msg'] = ("No state change required for Disk ID {} because of its "
-                                       "current status '{}'").format(disk_id,
-                                                                     disk_facts['status'])
-                disk_should_exist = False
-    else:
-        # disk_id =0 -> pre-existing Disk was not found.
-        disk_should_exist = False  # we will change it back to True if Disk is created successfully
-        # If requested state is 'absent' - nothing to do
-        if amodule.params['state'] == 'absent':
-            decon.result['failed'] = False
-            decon.result['changed'] = False
-            decon.result['msg'] = ("Nothing to do as target state 'absent' was requested for "
-                                   "non-existent Disk name '{}'").format(amodule.params['name'])
-        elif amodule.params['state'] == 'present':
-            decon.check_amodule_argument('name') # if disk name not specified, fail the module 
-            decon.check_amodule_argument('size') # if disk size not specified, fail the module
-
-            # as we already have account ID, we can create Disk and get disk id on success
-            if decon.check_amodule_argument('sep_id', False) and amodule.params['sep_id'] > 0:
-                # non-zero sep_id is explicitly passed in module arguments
-                target_sep_id = amodule.params['sep_id']
-            elif decon.check_amodule_argument('place_with', False) and amodule.params['place_with'] > 0:
-                # request to place this disk on the same SEP as the specified OS image
-                # validate specified OS image and assign SEP ID accordingly
-                image_id, image_facts = decon.image_find(amodule.params['place_with'], "", 0)
-                target_sep_id = image_facts['sepId']
-            else:
-                # no SEP ID is explicitly specified, and no place_with option - we do not know where
-                # to place the new disk - fail the module
-                decon.result['failed'] = True
-                decon.result['msg'] = ("Cannot create new Disk name '{}': no SEP ID specified and "
-                                       "no 'place_with' option used.").format(amodule.params['name'])
-                amodule.fail_json(**decon.result)
-            
-            disk_id = decon.disk_provision(disk_name=amodule.params['name'],
-                                            size=amodule.params['size'],
-                                            account_id=validated_acc_id, 
-                                            sep_id=target_sep_id,
-                                            pool_name=amodule.params['pool'],
-                                            desc=amodule.params['annotation'],
-                                            location="")
-            disk_should_exist = True            
-        elif amodule.params['state'] == 'disabled':
-            decon.result['failed'] = True
-            decon.result['changed'] = False
-            decon.result['msg'] = ("Invalid target state '{}' requested for non-existent "
-                                   "Disk name '{}'").format(amodule.params['state'],
-                                                            amodule.params['name'])
-    
-    #
-    # conditional switch end - complete module run
-    #
-    if decon.result['failed']:
-        amodule.fail_json(**decon.result)
-    else:
-        # prepare Disk facts to be returned as part of decon.result and then call exit_json(...)
-        if disk_should_exist:
-            if decon.result['changed']:
-                # If we arrive here, there is a good chance that the Disk is present - get fresh Disk
-                # facts by Disk ID.
-                # Otherwise, Disk facts from previous call (when the Disk was still in existence) will
-                # be returned.
-                _, disk_facts = decon.disk_find(disk_id)
-        decon.result['facts'] = decort_disk_package_facts(disk_facts, amodule.check_mode)
+    elif decon.validated_disk_id == 0 and amodule.params['state'] == 'absent' and amodule.params['name']:
+    # if disk with specified name cannot be found and have a state 'absent', then nothing to do, 
+    # specified disk already deleted
+        decon.result['msg'] = ("Disk with name '{}' has already been deleted or your account does not have"
+        "access to it.")\
+            .format(amodule.params['name'])
         amodule.exit_json(**decon.result)
 
+    elif decon.validated_disk_id == 0 and amodule.params['state'] == 'absent' and amodule.params['id']:
+    # if disk with specified id cannot be found and have a state 'absent', then nothing to do, 
+    # specified disk already deleted
+        decon.result['msg'] = ("Disk with name '{}' has already been deleted or your account does not have"
+                                "access to it.")\
+            .format(decon.validated_disk_id)
+        amodule.exit_json(**decon.result)
+
+    elif decon.disk_facts['status'] == "CREATED":
+        if amodule.params['state'] == 'present':
+        # if disk status in condition "CREATED" and state "present", nothing to do,
+        # specified disk already created
+            decon.result['msg'] = "Specified Disk ID {} already created.".format(decon.validated_disk_id)
+
+        if amodule.params['state'] == 'absent':
+        # if disk status in condition "CREATED" and state "absent", delete the disk
+            decon.validated_disk_id = decon.decort_disk_delete(amodule)
+            decon.disk_facts['status'] = "DESTROYED"
+            decon.result['msg'] = ("Disk with id '{}' successfully deleted.").format(decon.disk_facts['id'])
+            decon.result['facts'] = decon.decort_disk_package_facts(decon.disk_facts)
+            amodule.exit_json(**decon.result)
+
+    elif decon.disk_facts['status'] in ["MODELED", "CREATING" ]:
+        # if disk in status "MODELED" or "CREATING", 
+        # then we cannot do anything, while disk in this status
+        decon.result['changed'] = False
+        decon.result['msg'] = ("Cannot do anything with disk id '{}',please wait until disk will be created.")\
+            .format(decon.validated_disk_id)
+        amodule.fail_json(**decon.result)
+
+    elif decon.disk_facts['status'] == "DELETED":
+        if amodule.params['state'] == 'present':
+            # if disk in "DELETED" status and "present" state, restore
+            decon.disk_restore(decon.validated_disk_id)
+            _, decon.disk_facts = decon.decort_disk_find(amodule)
+            decon.result['changed'] = True
+            decon.result['msg'] = ("Disk with id '{}',restored successfully.").format(decon.validated_disk_id)
+
+        elif amodule.params['state'] == 'absent':
+            # if disk in "DELETED" status and "absent" state, nothing to do
+            decon.result['msg'] = "Specified Disk ID {} already destroyed.".format(decon.validated_disk_id)
+            amodule.exit_json(**decon.result)
+    
+    elif decon.disk_facts['status'] in ["DESTROYED", "PURGED"]:
+        if amodule.params['state'] == 'present':
+            decon.validated_disk_id = decon.decort_disk_create(amodule)
+            _, decon.disk_facts = decon.decort_disk_find(amodule)
+            decon.result['changed'] = True
+            decon.result['facts'] = decon.decort_disk_package_facts(decon.disk_facts)
+            decon.result['msg'] = ("Disk with id '{}',created successfully.").format(decon.validated_disk_id)
+
+        elif amodule.params['state'] == 'absent':
+            decon.result['msg'] = "Specified Disk ID {} already destroyed.".format(decon.validated_disk_id)
+            amodule.exit_json(**decon.result)
+
+    if amodule.params['state'] == "present":
+        if decon.disk_facts['sizeMax'] != amodule.params['size']:
+            if decon.disk_facts['sizeMax'] > amodule.params['size'] and amodule.params['size'] != 0:
+                decon.result['failed'] = True
+                decon.result['msg'] = ("Disk id '{}', cannot reduce disk size.").format(decon.validated_disk_id)
+                amodule.fail_json(**decon.result)
+            elif decon.disk_facts['sizeMax'] < amodule.params['size']:
+                decon.disk_resize(disk_facts=decon.disk_facts,
+                                    new_size=amodule.params['size'])
+                decon.result['changed'] = True
+                decon.result['msg'] = ("Disk with id '{}',resized successfully.").format(decon.validated_disk_id)
+
+        if amodule.params['limitIO'] and amodule.params['limitIO'] != decon.disk_facts['iotune']:
+            decon.decort_disk_limitIO(amodule)
+            decon.result['changed'] = True
+            decon.result['msg'] = ("Disk with id '{}',limited successfully.").format(decon.validated_disk_id)
+    
+    if amodule.params['name'] and amodule.params['id']:
+        if amodule.params['name'] != decon.disk_facts['name']:
+            decon.decort_disk_rename(amodule)
+            decon.result['changed'] = True
+            decon.result['msg'] = ("Disk with id '{}',renamed successfully from '{}' to '{}'.")\
+                .format(decon.validated_disk_id, decon.disk_facts['name'], amodule.params['name'])
+
+    amodule.exit_json(**decon.result)
 
 if __name__ == "__main__":
     main()
