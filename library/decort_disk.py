@@ -263,19 +263,23 @@ class decort_disk(DecortController):
         # limitIO check for exclusive parameters
         if amodule.params['limitIO']:
             limit = amodule.params['limitIO']
-            if limit['total_bytes_sec'] > 0 and limit['read_bytes_sec'] > 0 or limit['write_bytes_sec'] > 0:
+            if limit['total_bytes_sec'] > 0 and limit['read_bytes_sec'] > 0 or \
+                    limit['total_bytes_sec'] > 0 and limit['write_bytes_sec'] > 0:
                 self.result['failed'] = True
                 self.result['msg'] = ("total and read/write of bytes_sec cannot be set at the same time.")
                 amodule.fail_json(**self.result)
-            elif limit['total_iops_sec'] > 0 and limit['read_iops_sec'] > 0 or limit['write_iops_sec'] > 0:
+            elif limit['total_iops_sec'] > 0 and limit['read_iops_sec'] > 0 or \
+                    limit['total_iops_sec'] > 0 and limit['write_iops_sec'] > 0:
                 self.result['failed'] = True
                 self.result['msg'] = ("total and read/write of iops_sec cannot be set at the same time.")
                 amodule.fail_json(**self.result)
-            elif limit['total_bytes_sec_max'] > 0 and limit['read_bytes_sec_max'] > 0 or limit['write_bytes_sec_max'] > 0:
+            elif limit['total_bytes_sec_max'] > 0 and limit['read_bytes_sec_max'] > 0 or \
+                    limit['total_bytes_sec_max'] > 0 and limit['write_bytes_sec_max'] > 0:
                 self.result['failed'] = True
                 self.result['msg'] = ("total and read/write of bytes_sec_max cannot be set at the same time.")
                 amodule.fail_json(**self.result)
-            elif limit['total_iops_sec_max'] > 0 and limit['read_iops_sec_max'] > 0 or limit['write_iops_sec_max'] > 0:
+            elif limit['total_iops_sec_max'] > 0 and limit['read_iops_sec_max'] > 0 or \
+                    limit['total_iops_sec_max'] > 0 and limit['write_iops_sec_max'] > 0:
                 self.result['failed'] = True
                 self.result['msg'] = ("total and read/write of iops_sec_max cannot be set at the same time.")
                 amodule.fail_json(**self.result)
@@ -303,27 +307,57 @@ class decort_disk(DecortController):
             self.result['failed'] = True
             self.result['msg'] = ("Cannot find or create disk without disk name or disk id")
             amodule.fail_json(**self.result)
+        
+        if amodule.params['place_with'] > 0:
+            image_id, image_facts = self.image_find(amodule.params['place_with'], "", 0)
+            amodule.params['sep_id']= image_facts['sepId']
+
+
 
 
     def decort_disk_create(self, amodule):
-        if self.disk_facts['status'] in ["DESTROYED", "PURGED"]:
-            if not amodule.params['limitIO']:
-                amodule.params['limitIO'] = self.disk_facts['iotune']
-            self.disk_id = self.disk_create(accountId=self.validated_account_id, gid=self.disk_facts['gid'], 
-                                            name=self.disk_facts['name'], description=self.disk_facts['desc'], 
-                                            size=self.disk_facts['sizeMax'], type=self.disk_facts['type'], 
-                                            iops=self.disk_facts['iotune']['total_iops_sec'], 
-                                            sep_id=self.disk_facts['sepId'], pool=self.disk_facts['pool'])
-            self.disk_facts['iotune'] = 0
-        else:
+        if not self.disk_facts:
             self.disk_id = self.disk_create(accountId=self.validated_account_id, gid=amodule.params['gid'], 
                                             name=amodule.params['name'], description=amodule.params['description'], 
                                             size=amodule.params['size'], type=amodule.params['type'], 
                                             iops=amodule.params['iops'], 
                                             sep_id=amodule.params['sep_id'], pool=amodule.params['pool'])
+            self.result['msg'] = ("Disk with id '{}' successfully created.").format(self.disk_id)
+
+        elif self.disk_facts['status'] in ["DESTROYED", "PURGED"]:
+            if not amodule.params['limitIO']:
+                amodule.params['limitIO'] = self.disk_facts['iotune']
+            if amodule.params['sep_id'] == 0:
+                validated_sep_id = self.disk_facts['sepId']
+            else:
+                validated_sep_id = amodule.params['sep_id']
+
+            if amodule.params['pool'] == 0:
+                validated_pool = self.disk_facts['pool']
+            else:
+                validated_pool = amodule.params['pool']
+
+            if amodule.params['size'] == 0:
+                validated_size = self.disk_facts['sizeMax']
+            else:
+                validated_size = amodule.params['size']
+
+            if amodule.params['gid'] == 0:
+                validated_gid = self.disk_facts['gid']
+            else:
+                validated_gid = amodule.params['gid']
+
+            self.disk_id = self.disk_create(accountId=self.validated_account_id, gid=validated_gid, 
+                                            name=self.disk_facts['name'], description=amodule.params['description'], 
+                                            size=validated_size, type=self.disk_facts['type'], 
+                                            iops=self.disk_facts['iotune']['total_iops_sec'], 
+                                            sep_id=validated_sep_id, pool=validated_pool)
+            if not amodule.params['limitIO']:
+                amodule.params['limitIO'] = self.disk_facts['iotune']
+            self.result['msg'] = ("Disk with id '{}' successfully recreated.").format(self.disk_id)
+
         self.result['failed'] = False
         self.result['changed'] = True
-        self.result['msg'] = ("Disk with id '{}' successfully created.").format(self.disk_id)
         return self.disk_id
 
     def decort_disk_delete(self, amodule):
@@ -335,14 +369,18 @@ class decort_disk(DecortController):
 
 
     def decort_disk_find(self, amodule):
-        if amodule.params['id']:
-            self.disk_id, self.disk_facts = self.disk_find(disk_id=amodule.params['id'],
-                                                            name=amodule.params['name'],
-                                                            account_id=0)
-        elif amodule.params['name']:
+        if amodule.params['name'] and not amodule.params['id']:
             self.disk_id, self.disk_facts = self.disk_find(disk_id=self.validated_disk_id,
                                                 name=amodule.params['name'], 
                                                 account_id=self.validated_account_id)
+        elif self.validated_disk_id > 0:
+            self.disk_id, self.disk_facts = self.disk_find(disk_id=self.validated_disk_id,
+                                                            name=self.disk_facts['name'],
+                                                            account_id=0)
+        elif amodule.params['id']:
+            self.disk_id, self.disk_facts = self.disk_find(disk_id=amodule.params['id'],
+                                                            name=amodule.params['name'],
+                                                            account_id=0)
 
         if not self.disk_id and not amodule.params['name']:
                     self.result['failed'] = True
@@ -494,6 +532,11 @@ def main():
     decon = decort_disk(amodule)
 
     if decon.validated_disk_id == 0 and amodule.params['state'] == 'present':
+        # if sep_id or place_with not specified, then exit with error
+        if amodule.params['sep_id'] == 0 or amodule.params['place_with'] == 0:
+            decon.result['msg'] = ("To create a disk, you must specify sep_id or place_with.")\
+            .format(decon.validated_disk_id)
+            amodule.fail_json(**decon.result)
     # if id cannot cannot be found and have a state 'present', then create a new disk 
         decon.validated_disk_id = decon.decort_disk_create(amodule)
         _, decon.disk_facts = decon.decort_disk_find(amodule)
@@ -555,9 +598,6 @@ def main():
         if amodule.params['state'] == 'present':
             decon.validated_disk_id = decon.decort_disk_create(amodule)
             _, decon.disk_facts = decon.decort_disk_find(amodule)
-            decon.result['changed'] = True
-            decon.result['facts'] = decon.decort_disk_package_facts(decon.disk_facts)
-            decon.result['msg'] = ("Disk with id '{}',created successfully.").format(decon.validated_disk_id)
 
         elif amodule.params['state'] == 'absent':
             decon.result['msg'] = "Specified Disk ID {} already destroyed.".format(decon.validated_disk_id)

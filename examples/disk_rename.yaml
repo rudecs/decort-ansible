@@ -1,0 +1,15 @@
+---
+- hosts: localhost
+  tasks:
+  - name: manage data disk 01
+    decort_disk:
+       authenticator: oauth2
+       app_id: #Application id from SSO DigitalEnergy
+       app_secret: #Application secret from SSO DigitalEnergy
+       controller_url: "https://cloud.digitalenergy.online"
+       account_name: "account_name"
+       id: 111
+       name: "example_disk2"
+       verify_ssl: false
+
+    delegate_to: localhost

@@ -1,0 +1,22 @@
+---
+- hosts: localhost
+  tasks:
+  - name: manage data disk 01
+    decort_disk:
+       authenticator: oauth2
+       app_id: #Application id from SSO DigitalEnergy
+       app_secret: #Application secret from SSO DigitalEnergy
+       controller_url: "https://cloud.digitalenergy.online"
+       account_name: "account_name"
+       name: "example_disk"
+       sep_id: 1
+       pool: 0
+       gid: 0
+       size: 2
+       type: "D"
+       description: "Disk created by decort_disk module"
+       iops: 2000
+       state: present
+       verify_ssl: false
+
+    delegate_to: localhost
