@@ -533,7 +533,7 @@ def main():
 
     if decon.validated_disk_id == 0 and amodule.params['state'] == 'present':
         # if sep_id or place_with not specified, then exit with error
-        if amodule.params['sep_id'] == 0 or amodule.params['place_with'] == 0:
+        if amodule.params['sep_id'] == 0 and amodule.params['place_with'] == 0:
             decon.result['msg'] = ("To create a disk, you must specify sep_id or place_with.")\
             .format(decon.validated_disk_id)
             amodule.fail_json(**decon.result)
