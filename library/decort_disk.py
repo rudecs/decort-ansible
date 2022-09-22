@@ -547,7 +547,7 @@ def main():
     # if disk with specified name cannot be found and have a state 'absent', then nothing to do, 
     # specified disk already deleted
         decon.result['msg'] = ("Disk with name '{}' has already been deleted or your account does not have"
-        "access to it.")\
+        " access to it.")\
             .format(amodule.params['name'])
         amodule.exit_json(**decon.result)
 
@@ -555,7 +555,7 @@ def main():
     # if disk with specified id cannot be found and have a state 'absent', then nothing to do, 
     # specified disk already deleted
         decon.result['msg'] = ("Disk with name '{}' has already been deleted or your account does not have"
-                                "access to it.")\
+                                " access to it.")\
             .format(decon.validated_disk_id)
         amodule.exit_json(**decon.result)
 
@@ -613,6 +613,7 @@ def main():
                 decon.disk_resize(disk_facts=decon.disk_facts,
                                     new_size=amodule.params['size'])
                 decon.result['changed'] = True
+                decon.disk_facts['size'] = amodule.params['size']
                 decon.result['msg'] = ("Disk with id '{}',resized successfully.").format(decon.validated_disk_id)
 
         if amodule.params['limitIO'] and amodule.params['limitIO'] != decon.disk_facts['iotune']:
