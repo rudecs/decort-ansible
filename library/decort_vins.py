@@ -249,8 +249,8 @@ class decort_vins(DecortController):
     def __init__(self,arg_amodule):
         super(decort_vins, self).__init__(arg_amodule)
 
-        vins_id = 0
-        vins_level = ""  # "ID" if specified by ID, "RG" - at resource group, "ACC" - at account level
+        self.vins_id = 0
+        self.vins_level = ""  # "ID" if specified by ID, "RG" - at resource group, "ACC" - at account level
         vins_facts = None  # will hold ViNS facts
         validated_rg_id = 0
         rg_facts = None  # will hold RG facts
@@ -261,17 +261,17 @@ class decort_vins(DecortController):
             # expect existing ViNS with the specified ID
             # This call to vins_find will abort the module if no ViNS with such ID is present
             self.vins_id, self.vins_facts = self.vins_find(arg_amodule.params['vins_id'])
-            if not vins_id:
+            if not self.vins_id:
                 self.result['failed'] = True
                 self.result['msg'] = "Specified ViNS ID {} not found.".format(arg_amodule.params['vins_id'])
                 self.fail_json(**self.result)
-            vins_level = "ID"
+            self.vins_level = "ID"
             validated_acc_id = vins_facts['accountId']
             validated_rg_id = vins_facts['rgId']
     
         elif arg_amodule.params['rg_id']:
             # expect ViNS @ RG level in the RG with specified ID
-            vins_level = "RG"
+            self.vins_level = "RG"
             # This call to rg_find will abort the module if no RG with such ID is present
             validated_rg_id, rg_facts = self.rg_find(0,  # account ID set to 0 as we search for RG by RG ID
                                                     arg_amodule.params['rg_id'], arg_rg_name="")
@@ -307,7 +307,7 @@ class decort_vins(DecortController):
                                                     rg_id=validated_rg_id,
                                                     rg_facts=rg_facts,
                                                     check_state=False)
-                vins_level = "RG"
+                self.vins_level = "RG"
                 # TODO: add checks and setup ViNS presence flags accordingly
             else:  # At this point we know for sure that rg_name="" and rg_id=0
                 # So we expect ViNS @ account level
@@ -317,7 +317,7 @@ class decort_vins(DecortController):
                                                     rg_id=0,
                                                     rg_facts=rg_facts,
                                                     check_state=False)
-                vins_level = "ACC"
+                self.vins_level = "ACC"
                 # TODO: add checks and setup ViNS presence flags accordingly
         else:
             # this is "invalid arguments combination" sink

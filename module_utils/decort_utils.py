@@ -31,7 +31,6 @@ Requirements:
 - DECORT cloud platform version 3.6.1 or higher
 """
 
-import copy
 import json
 import jwt
 import netaddr
@@ -785,7 +784,7 @@ class DecortController(object):
         Note: when Ansible is run in check mode method will return 0.
         """
 
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "kvmvm_provision")
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "kvmvm_provision2")
 
         if self.amodule.check_mode:
             self.result['failed'] = False
@@ -1207,7 +1206,7 @@ class DecortController(object):
                           affinityLabel=label,)
             self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/affinityLabelSet", api_params)
         if aff:
-            if len(aff[0])>0:
+            if len(aff)>0:
                 for rule in aff:
                     api_params = dict(computeId=comp_dict['id'],
                                 key=rule['key'],
@@ -1217,7 +1216,7 @@ class DecortController(object):
                                 policy=rule['policy'],)
                     self.decort_api_call(requests.post, "/restmachine/cloudapi/compute/affinityRuleAdd", api_params)
         if aaff:
-            if len(aaff[0])>0:
+            if len(aaff)>0:
                 for rule in aaff:
                     api_params = dict(computeId=comp_dict['id'],
                                 key=rule['key'],
@@ -1975,7 +1974,7 @@ class DecortController(object):
         if api_resp.status_code == 200:
             locations = json.loads(api_resp.content.decode('utf8'))
             if location_code == "" and locations:
-                ret_gid = locations[0]['gid']
+                ret_gid = locations['gid']
             else:
                 for runner in locations:
                     if runner['locationCode'] == location_code:
@@ -2569,7 +2568,7 @@ class DecortController(object):
     #
     ##############################
 
-    def disk_delete(self, disk_id, permanently=False, force_detach=False):
+    def disk_delete(self, disk_id, permanently, detach, reason):
         """Deletes specified Disk.
 
         @param (int) disk_id: ID of the Disk to be deleted.
@@ -2586,8 +2585,9 @@ class DecortController(object):
             return
 
         api_params = dict(diskId=disk_id,
-                          detach=force_detach,
-                          permanently=permanently, )
+                          detach=detach,
+                          permanently=permanently,
+                          reason=reason)
         self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/delete", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
@@ -2626,7 +2626,7 @@ class DecortController(object):
 
         return ret_disk_id, ret_disk_dict
 
-    def disk_find(self, disk_id, disk_name="", account_id=0, check_state=False):
+    def disk_find(self, disk_id, name, account_id, check_state=False):
         """Find specified Disk. 
        
         @param (int) disk_id: ID of the Disk. If non-zero disk_id is specified, all other arguments 
@@ -2662,11 +2662,11 @@ class DecortController(object):
                 self.result['failed'] = True
                 self.result['msg'] = "disk_find(): cannot find Disk by ID {}.".format(disk_id)
                 self.amodule.fail_json(**self.result)
-            if not check_state or ret_disk_facts['status'] not in DISK_INVALID_STATES:
+            if not check_state or ret_disk_facts['status']:
                 return ret_disk_id, ret_disk_facts
             else:
                 return 0, None
-        elif disk_name != "":
+        elif name != "":
             if account_id > 0:
                 api_params = dict(accountId=account_id)
                 api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/list", api_params)
@@ -2674,15 +2674,15 @@ class DecortController(object):
                 disks_list = json.loads(api_resp.content.decode('utf8'))
                 for runner in disks_list:
                     # return the first disk of the specified name that fulfills status matching rule
-                    if runner['name'] == disk_name:
-                        if not check_state or runner['status'] not in DISK_INVALID_STATES:
+                    if runner['name'] == name:
+                        if not check_state or runner['status']:
                             return runner['id'], runner
                 else:
                     return 0, None
             else:  # we are missing meaningful account_id - fail the module
                 self.result['failed'] = True
                 self.result['msg'] = ("disk_find(): cannot find Disk by name '{}' "
-                                      "when no account ID specified.").format(disk_name)
+                                      "when no account ID specified.").format(name)
                 self.amodule.fail_json(**self.result)
         else:  # Disk ID is 0 and Disk name is emtpy - fail the module
             self.result['failed'] = True
@@ -2691,55 +2691,40 @@ class DecortController(object):
 
         return 0, None
 
-    def disk_provision(self, disk_name, size, account_id, sep_id, pool_name="", desc="", location=""):
+    def disk_create(self, accountId, gid, name, description, size, type, iops, sep_id, pool):
         """Provision Disk according to the specified arguments.
         Note that disks created by this method will be of type 'D' (data disks).
         If critical error occurs the embedded call to API function will abort further execution 
         of the script and relay error to Ansible.
 
-        @param (string) disk_name: name to assign to the Disk.
+        @param (string) name: name to assign to the Disk.
         @param (int) size: size of the disk in GB.
-        @param (int) account_id: ID of the account where disk will belong.
+        @param (int) accountId: ID of the account where disk will belong.
         @param (int) sep_id: ID of the SEP (Storage Endpoint Provider), where disk will be created.
         @param (string) pool: optional name of the pool, where this disk will be created.
-        @param (string) desc: optional text description of this disk. 
-        @param (string) location: optional location, where disk resources will be provided. If empty
-        string is specified the disk will be created in the default location under DECORT controller.
+        @param (string) description: optional text description of this disk. 
+        @param (int) gid: optional Grid id, if specified the disk will be created in selected
+        location.
 
         @return: ID of the newly created Disk (in Ansible check mode 0 is returned).
         """
 
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_provision")
-
-        if self.amodule.check_mode:
-            self.result['failed'] = False
-            self.result['msg'] = "disk_provision() in check mode: create Disk name '{}' was requested.".format(
-                disk_name)
-            return 0
-
-        target_gid = self.gid_get(location)
-        if not target_gid:
-            self.result['failed'] = True
-            self.result['msg'] = "disk_provision() failed to obtain Grid ID for default location."
-            self.amodule.fail_json(**self.result)
-
-        ret_disk_id = 0
-        api_params = dict(accountId=account_id,
-                          gid=target_gid,
-                          name=disk_name,
-                          desc=desc,
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_creation")
+        api_params = dict(accountId=accountId,
+                          gid=gid,
+                          name=name,
+                          description=description,
                           size=size,
-                          type='D',
-                          sepId=sep_id, )
-        if pool_name != "":
-            api_params['pool'] = pool_name
+                          type=type,
+                          iops=iops,
+                          sepId=sep_id,
+                          pool=pool )
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/create", api_params)
         if api_resp.status_code == 200:
             ret_disk_id = json.loads(api_resp.content.decode('utf8'))
 
         self.result['failed'] = False
         self.result['changed'] = True
-
         return ret_disk_id
 
     def disk_resize(self, disk_facts, new_size):
@@ -2792,6 +2777,48 @@ class DecortController(object):
         self.result['changed'] = True
         disk_facts['sizeMax'] = new_size
 
+        return
+
+    def disk_limitIO(self, limits, diskId):
+        """Limits already created Disk identified by its ID. 
+        @param (dict) limits: Dictionary with limits.
+        @param (int) diskId: ID of the Disk to limit.
+        @returns: nothing on success. On error this method will abort module execution.
+        """        
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_limitIO")
+        api_params = dict(diskId=diskId,
+                          total_bytes_sec=limits['total_bytes_sec'],
+                          read_bytes_sec=limits['read_bytes_sec'],
+                          write_bytes_sec=limits['write_bytes_sec'],
+                          total_iops_sec=limits['total_iops_sec'],
+                          read_iops_sec=limits['read_iops_sec'],
+                          write_iops_sec=limits['write_iops_sec'],
+                          total_bytes_sec_max=limits['total_bytes_sec_max'],
+                          read_bytes_sec_max=limits['read_bytes_sec_max'],
+                          write_bytes_sec_max=limits['write_bytes_sec_max'],
+                          total_iops_sec_max=limits['total_iops_sec_max'],
+                          read_iops_sec_max=limits['read_iops_sec_max'],
+                          write_iops_sec_max=limits['write_iops_sec_max'],
+                          size_iops_sec=limits['size_iops_sec'])
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/limitIO", api_params)
+        self.result['msg'] = "Specified Disk ID {} limited successfully.".format(self.validated_disk_id)
+        return
+    
+    def disk_rename(self, diskId, name):
+        """Renames disk to the specified new name.
+
+        @param disk_id: ID of the Disk to rename.
+        @param name: New name.
+
+        @returns: nothing on success. On error this method will abort module execution.
+        """
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "disk_rename")
+        api_params = dict(diskId=diskId,
+                          name=name)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/disks/rename", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
         return
 
     def disk_restore(self, disk_id):
@@ -3270,7 +3297,7 @@ class DecortController(object):
                         self.result['failed'] = True
                         return
                     elif ret_info['status'] == "OK":
-                        k8s_id = ret_info['result'][0]
+                        k8s_id = ret_info['result']
                         self.result['changed'] = True
                         return k8s_id
                     else:
@@ -3373,10 +3400,10 @@ class DecortController(object):
                     k8ci_id_present = True
                     break
                 
-            if k8ci_id_present == False:
-                    self.result['failed'] = True
-                    self.result['msg'] = ("Cannot find k8ci id: {}.").format(arg_k8ci_id)
-                    self.amodule.fail_json(**self.result)  
+            else:
+                self.result['failed'] = True
+                self.result['msg'] = ("Cannot find k8ci id: {}.").format(arg_k8ci_id)
+                self.amodule.fail_json(**self.result)  
         else:
             self.result['failed'] = True
             self.result['msg'] = ("Failed to get k8ci list HTTP code {}.").format(api_resp.status_code)
@@ -3736,3 +3763,699 @@ class DecortController(object):
         self.result['msg'] = "group_delete() Group ID {} was deleted.".format(gr_id)
         self.result['changed'] = True
         return      
+####################
+### LB MANAGMENT ###
+####################
+    def _lb_get_by_id(self,lb_id):
+        """Helper function that locates LB by ID and returns LB facts. This function
+        expects that the ViNS exists (albeit in DELETED or DESTROYED state) and will return
+        0 LB ID if not found.
+
+        @param (int) vins_id: ID of the LB to find and return facts for.
+
+        @return: LB ID and a dictionary of LB facts as provided by LB/get API call. 
+        """
+        ret_lb_id = 0
+        ret_lb_dict = dict()
+
+        if not lb_id:
+            self.result['failed'] = True
+            self.result['msg'] = "lb_get_by_id(): zero LB ID specified."
+            self.amodule.fail_json(**self.result)
+
+        api_params = dict(lbId=lb_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/get", api_params)
+        if api_resp.status_code == 200:
+            ret_lb_id = lb_id
+            ret_lb_dict = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("lb_get_by_id(): failed to get LB by ID {}. HTTP code {}, "
+                                      "response {}.").format(lb_id, api_resp.status_code, api_resp.reason)
+
+        return ret_lb_id, ret_lb_dict
+    def _rg_listlb(self,rg_id):
+        """List all LB in the resource group
+            @param (int) rg_id: id onr resource group
+        """
+        if not rg_id:
+            self.result['failed'] = True
+            self.result['msg'] = "_rg_listlb(): zero RG ID specified."
+            self.amodule.fail_json(**self.result)
+
+        api_params = dict(rgId=rg_id)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/listLb", api_params)
+        if api_resp.status_code == 200:
+            ret_rg_vins_list = json.loads(api_resp.content.decode('utf8'))
+        else:
+            self.result['warning'] = ("rg_listlb(): failed to get RG by ID {}. HTTP code {}, "
+                                      "response {}.").format(rg_id, api_resp.status_code, api_resp.reason)
+            return []
+
+        return ret_rg_vins_list
+    def lb_find(self,lb_id=0,lb_name="",rg_id=0):
+        """Find specified LB. 
+
+        @returns: LB ID and dictionary with LB facts. 
+        """
+        LB_INVALID_STATES = ["ENABLING", "DISABLING", "DELETING", "DELETED", "DESTROYING", "DESTROYED"]
+
+        ret_lb_id = 0
+        ret_lb_facts = None
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "lb_find")
+
+        if lb_id > 0:
+            ret_lb_id, ret_lb_facts = self._lb_get_by_id(lb_id)
+            if not ret_lb_id:
+                self.result['failed'] = True
+                self.result['msg'] = "lb_find(): cannot find LB by ID {}.".format(lb_id)
+                self.amodule.fail_json(**self.result)
+            if not self.amodule.check_mode or ret_lb_facts['status'] not in LB_INVALID_STATES:
+                return ret_lb_id, ret_lb_facts
+            else:
+                return 0, None
+        elif lb_name != "":
+            if rg_id > 0:
+                list_lb = self._rg_listlb(rg_id)
+                for lb in list_lb:
+                    if lb['name'] == lb_name:
+                        ret_lb_id, ret_lb_facts = self._lb_get_by_id(lb['id'])
+                        if not self.amodule.check_mode or ret_lb_facts['status'] not in LB_INVALID_STATES:
+                            return ret_lb_id, ret_lb_facts
+                        else:
+                            return 0, None
+            else:
+                self.result['failed'] = True
+                self.result['msg'] = ("vins_lb(): cannot find LB by name '{}' "
+                                      "when no account ID or RG ID is specified.").format(lb_name)
+                self.amodule.fail_json(**self.result)
+        else: 
+            self.result['failed'] = True
+            self.result['msg'] = "vins_find(): cannot find LB by zero ID and empty name."
+            self.amodule.fail_json(**self.result)
+
+        return 0, None
+    def lb_provision(self,lb_name,rg_id,vins_id,ext_net_id,annotation,start=True):
+        """Provision LB according to the specified arguments.
+        If critical error occurs the embedded call to API function will abort further execution of 
+        the script and relay error to Ansible.
+        Note, that when creating ViNS at account level, default location under DECORT controller 
+        will be selected automatically.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "lb_provision")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("vins_lb() in check mode: provision LB name '{}' was "
+                                  "requested in RG with id: {}.").format(lb_name,rg_id)
+            return 0
+
+        if lb_name == "":
+            self.result['failed'] = True
+            self.result['msg'] = "lb_provision(): LB name cannot be empty."
+            self.amodule.fail_json(**self.result)
+
+        api_url = "/restmachine/cloudapi/lb/create"
+        api_params = dict(
+                name=lb_name,
+                rgId=rg_id,
+                extnetId=ext_net_id,
+                vinsId=vins_id,
+                start=start,
+                decs=annotation
+        )
+        api_resp = self.decort_api_call(requests.post, api_url, api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
+        ret_lb_id = int(api_resp.content.decode('utf8'))
+        return ret_lb_id
+    def lb_delete(self,lb_id,permanently=False):
+        """Deletes specified LB.
+
+        @param (int) lb_id: integer value that identifies the ViNS to be deleted.
+        @param (bool) permanently: a bool that tells if deletion should be permanent. If False, the LB will be
+        marked as DELETED and placed into a trash bin for predefined period of time (usually, a few days). Until
+        this period passes this LB can be restored by calling the corresponding 'restore' method.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "lb_delete")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = "lb_delete() in check mode: delete ViNS ID {} was requested.".format(lb_id)
+            return
+
+        api_params = dict(lbId=lb_id,
+                          permanently=permanently)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/delete", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+    def lb_state(self, lb_dict, desired_state):
+        """Change state for LB.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "lb_state")
+
+        NOP_STATES_FOR_LB_CHANGE = ["MODELED", "DISABLING", "ENABLING", "DELETING", "DELETED", "DESTROYING",
+                                      "DESTROYED"]
+        VALID_TARGET_STATES = ["enabled", "disabled","restart"]
+        VALID_TARGET_TSTATES = ["STARTED","STOPPED"]
+        
+        if lb_dict['status'] in NOP_STATES_FOR_LB_CHANGE:
+            self.result['failed'] = False
+            self.result['msg'] = ("lb_state(): no state change possible for LB ID {} "
+                                  "in its current state '{}'.").format(lb_dict['id'], lb_dict['status'])
+            return
+
+        if desired_state not in VALID_TARGET_STATES:
+            self.result['failed'] = False
+            self.result['warning'] = ("lb_state(): unrecognized desired state '{}' requested "
+                                      "for LB ID {}. No LB state change will be done.").format(desired_state,
+                                                                                                   lb_dict['id'])
+            return
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("lb_state() in check mode: setting state of LB ID {}, name '{}' to "
+                                  "'{}' was requested.").format(lb_dict['id'], lb_dict['name'],
+                                                                desired_state)
+            return
+
+        state_api = ""
+        api_params = dict(lbId=lb_dict['id'])
+        expected_state = ""
+        if lb_dict['status'] in ["CREATED", "ENABLED"]:
+            if desired_state == 'disabled':
+                state_api = "/restmachine/cloudapi/lb/disable"
+                expected_state = "DISABLED"
+            if lb_dict['techStatus'] == "STARTED":
+                if desired_state == 'stopped':
+                    state_api = "/restmachine/cloudapi/lb/stop"
+                if desired_state == 'restart':
+                    state_api = "/restmachine/cloudapi/lb/restart"
+            elif lb_dict['techStatus'] == "STOPPED":
+                if desired_state == 'started':
+                    state_api = "/restmachine/cloudapi/lb/start"
+        elif lb_dict['status'] == "DISABLED" and desired_state == 'enabled':
+            state_api = "/restmachine/cloudapi/lb/enable"
+            expected_state = "ENABLED"
+
+        if state_api != "":
+            self.decort_api_call(requests.post, state_api, api_params)
+            # On success the above call will return here. On error it will abort execution by calling fail_json.
+            self.result['failed'] = False
+            self.result['changed'] = True
+            lb_dict['status'] = expected_state
+        else:
+            self.result['failed'] = False
+            self.result['msg'] = ("lb_state(): no state change required for LB ID {} from current "
+                                  "state '{}' to desired state '{}'.").format(lb_dict['id'],
+                                                                              lb_dict['status'],
+                                                                              desired_state)
+        return
+    def lb_restore(self, lb_id):
+        """Restores previously deleted LB identified by its ID.
+
+        @param lb_id: ID of the LB to restore.
+
+        @returns: nothing on success. On error this method will abort module execution.
+        """
+
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "lb_restore")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = "lb_restore() in check mode: restore LB ID {} was requested.".format(lb_id)
+            return
+
+        api_params = dict(lbId=lb_id)
+        self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/restore", api_params)
+        # On success the above call will return here. On error it will abort execution by calling fail_json.
+        self.result['failed'] = False
+        self.result['changed'] = True
+        return
+    
+    def lb_update_backends(self,lb_backends,mod_backends,mod_servers):
+        """
+        backends
+        """
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "lb_update_backends")
+
+        if mod_backends:
+            backs_out = [rec['name'] for rec in mod_backends]
+        else:
+            backs_out=""
+        backs_in = [rec['name'] for rec in lb_backends] 
+        del_backs = set(backs_in).difference(backs_out) 
+        add_becks = set(backs_out).difference(backs_in)
+        upd_becks = set(backs_in).intersection(backs_out)
+        
+        for item in del_backs:
+            #need delete frontend
+            api_params = dict(lbId=self.lb_id,backendName = item)
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendDelete", api_params)
+            self.result['changed'] = True
+        for item in add_becks:
+            backend, = list(filter(lambda i: i['name'] == item,mod_backends))
+            api_params = dict(
+                            lbId=self.lb_id,
+                            backendName = backend['name'],
+                            algorithm = backend['algorithm'] if "algorithm" in backend else None,
+                            **backend['default_settings'] if "default_settings" in backend else {},
+                            )
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendCreate", api_params)
+            self.result['changed'] = True
+        for item in upd_becks.union(add_becks):
+            
+            backend, = list(filter(lambda i: i['name'] == item,lb_backends))
+            mod_backend, = list(filter(lambda i: i['name'] == item,mod_backends))
+            servers_in = [rec['name'] for rec in backend['servers']]
+            servers_out = []
+            #oO rework
+            if mod_servers:
+                for serv in mod_servers:
+                    for bend in serv['backends']:
+                        if bend['name'] == item:
+                            servers_out.append(serv['name'])
+
+            del_srv = set(servers_in).difference(servers_out)
+            add_srv = set(servers_out).difference(servers_in)
+            upd_srv = set(servers_in).intersection(servers_out)
+
+            del backend['serverDefaultSettings']['guid']
+            
+            if "default_settings" not in mod_backend:
+                mod_backend["default_settings"] = self.default_settings
+
+            if "algorithm" not in mod_backend:
+                mod_backend["algorithm"] = self.default_alg
+
+            if backend['serverDefaultSettings'] != mod_backend["default_settings"] or\
+                mod_backend["algorithm"] != backend['algorithm']:
+                    api_params = dict(
+                            lbId=self.lb_id,
+                            backendName = item,
+                            algorithm = mod_backend['algorithm'],
+                            **mod_backend['default_settings'] if "default_settings" in mod_backend else {},
+                            )
+                    api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendUpdate", api_params)
+                    self.result['changed'] = True
+            
+            for srv in del_srv:
+                api_params = dict(lbId=self.lb_id,backendName = item,serverName=srv)
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendServerDelete", api_params)
+                self.result['changed'] = True
+            for srv in add_srv:
+                server, = list(filter(lambda i: i['name'] == srv,mod_servers))
+                back, = list(filter(lambda i: i['name'] == item,server['backends']))
+                api_params = dict(
+                            lbId=self.lb_id,
+                            backendName = item,
+                            serverName = server['name'],
+                            address = server['address'],
+                            port = back['port'],
+                            check = server['check'] if "check" in server else None,
+                            **server['server_settings'] if "server_settings" in server else {},
+                            )
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendServerAdd", api_params)
+                self.result['changed'] = True
+            for srv in upd_srv:
+                mod_server, = list(filter(lambda i: i['name'] == srv,mod_servers))
+                mod_server_back, = list(filter(lambda i: i['name'] == item,mod_server['backends']))
+                server, = list(filter(lambda i: i['name'] == srv, backend['servers']))
+                
+                del server['serverSettings']['guid']
+
+                if "server_settings" not in mod_server_back:
+                    mod_server_back['server_settings'] = self.default_settings    
+                if "check" not in mod_server:
+                    mod_server['check'] = self.default_server_check
+                
+                if (mod_server['address'] != server['address'] or\
+                    server['check']!=mod_server["check"]) or\
+                    mod_server_back['server_settings'] != server['serverSettings']:
+                        api_params = dict(
+                            lbId=self.lb_id,
+                            backendName = item,
+                            serverName = mod_server['name'],
+                            address = mod_server['address'],
+                            port = mod_server_back['port'],
+                            check = mod_server_back['check'] if "check" in mod_server_back else None,
+                            **mod_server_back['server_settings'] if "server_settings" in mod_server_back else {},
+                            )
+                        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendServerUpdate", api_params)
+                        self.result['changed'] = True
+                
+        return
+    def lb_update_frontends(self,lb_frontends,mod_frontends):
+        """
+        frontends
+        """
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "lb_update_frontends")
+        if mod_frontends:
+            front_out = [rec['name'] for rec in mod_frontends]
+        else:
+            front_out=""
+        front_in = [rec['name'] for rec in lb_frontends]
+
+        del_front = set(front_in).difference(front_out)
+        add_front = set(front_out).difference(front_in)
+        upd_front = set(front_in).intersection(front_out)
+
+        for front in del_front:
+            delete_front, = list(filter(lambda i: i['name'] == front,lb_frontends))
+            api_params = dict(
+                            lbId=self.lb_id,
+                            frontendName=delete_front['name'],
+                            )
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/frontendDelete", api_params)
+            self.result['changed'] = True
+        for front in add_front:
+            create_front, = list(filter(lambda i: i['name'] == front,mod_frontends))
+            api_params = dict(
+                            lbId=self.lb_id,
+                            frontendName=create_front['name'],
+                            backendName=create_front['backend'],
+                            )
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/frontendCreate", api_params)
+            self.result['changed'] = True
+            if "bindings" in create_front:
+                for bind in create_front['bindings']:
+                    self._lb_bind_frontend(
+                                            create_front['name'],
+                                            bind['name'],
+                                            bind['address'] if "address" in bind else None,
+                                            bind['port'] if "port" in bind else None
+                                            )
+        for front in upd_front:
+            update_front, = list(filter(lambda i: i['name'] == front,mod_frontends))
+            lb_front, = list(filter(lambda i: i['name'] == front,lb_frontends))
+            mod_bind = [rec['name'] for rec in update_front['bindings']]
+            lb_bind = [rec['name'] for rec in lb_front['bindings']]
+
+            del_bind_list = set(lb_bind).difference(mod_bind)
+            add_bind_list = set(mod_bind).difference(lb_bind)
+            upd_bind_list = set(lb_bind).intersection(mod_bind)
+
+            for bind_name in del_bind_list:
+                del_bind, = list(filter(lambda i: i['name'] == bind_name,lb_front['bindings']))
+                api_params = dict(
+                            lbId=self.lb_id,
+                            frontendName=update_front['name'],
+                            bindingName=del_bind['name'],
+                            )
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/frontendBindDelete", api_params)
+                self.result['changed'] = True
+            for bind_name in add_bind_list:
+                add_bind, = list(filter(lambda i: i['name'] == bind_name,update_front['bindings']))
+                self._lb_bind_frontend(
+                    update_front['name'],
+                    add_bind['name'],
+                    add_bind['address'] if "address" in add_bind else None,
+                    add_bind['port'] if "port" in add_bind else None
+                    )
+            for bind_name in upd_bind_list:
+                lb_act_bind, = list(filter(lambda i: i['name'] == bind_name,lb_front['bindings']))
+                mod_act_bind, = list(filter(lambda i: i['name'] == bind_name,update_front['bindings']))
+                del lb_act_bind['guid']
+                if lb_act_bind != mod_act_bind:
+                    self._lb_bind_frontend(
+                        update_front['name'],
+                        mod_act_bind['name'],
+                        mod_act_bind['address'] if "address" in mod_act_bind else None,
+                        mod_act_bind['port'] if "port" in mod_act_bind else None,
+                        update=True
+                    )    
+        return
+    
+    def _lb_bind_frontend(self,front_name,bind_name,bind_addr=None,bind_port=None,update=False):
+        api_params = dict(
+                            lbId=self.lb_id,
+                            frontendName=front_name,
+                            bindingName=bind_name,
+                            bindingAddress=bind_addr,
+                            bindingPort=bind_port,
+                        )
+        if update == True:
+            api_url = "/restmachine/cloudapi/lb/frontendBindingUpdate"
+        else:
+            api_url = "/restmachine/cloudapi/lb/frontendBind"
+        api_resp = self.decort_api_call(requests.post, api_url, api_params)
+        self.result['changed'] = True
+    
+    def lb_update(self,lb_backends=[],lb_frontends=[],mod_backends=[],mod_servers=[],mod_frontends=[]):
+        #lists from module and cloud
+        mod_backs_list = [back['name'] for back in mod_backends]
+        lb_backs_list = [back['name'] for back in lb_backends]
+        #ADD\DEL\UPDATE LISTS OF BACKENDS
+        del_list_backs = set(lb_backs_list).difference(mod_backs_list)
+        add_back_list = set(mod_backs_list).difference(lb_backs_list)
+        upd_back_list = set(lb_backs_list).intersection(mod_backs_list)
+        
+        #FE
+
+        mod_front_list = [front['name'] for front in mod_frontends]
+        lb_front_list = [front['name'] for front in lb_frontends]
+        
+        if del_list_backs:
+            
+            self._lb_delete_backends(
+                del_list_backs,
+                lb_frontends
+            )
+
+        if add_back_list:
+            self._lb_create_backends(
+                add_back_list,
+                mod_backends,
+                mod_servers   
+            )
+
+        if upd_back_list:
+            self._lb_update_backends(
+                upd_back_list,
+                lb_backends,
+                mod_backends,
+                mod_servers    
+            )
+        
+        del_list_fronts = set(lb_front_list).difference(mod_front_list)
+        add_list_fronts = set(mod_front_list).difference(lb_front_list)
+        upd_front_list = set(lb_front_list).intersection(mod_front_list)
+
+        if del_list_fronts:
+            self._lb_delete_fronts(del_list_fronts)
+        
+        if add_list_fronts:
+            self._lb_add_fronts(add_list_fronts,mod_frontends)
+        if upd_front_list:
+            self._lb_update_fronts(upd_front_list,lb_frontends,mod_frontends)
+        
+        return
+    
+    def _lb_delete_backends(self,back_list,lb_fronts):
+
+        #delete frontends with that backend
+        for back in back_list:
+            fronts = list(filter(lambda i: i['backend'] == back,lb_fronts))
+            if fronts:
+                self._lb_delete_fronts(fronts)
+            api_params = dict(
+                lbId=self.lb_id,
+                backendName = back
+            )
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendDelete", api_params)
+            self.result['changed'] = True
+        return
+    def _lb_delete_fronts(self,d_fronts):
+        for front in d_fronts:
+            api_params = dict(
+                lbId=self.lb_id,
+                frontendName=front['name'] if "name" in front else front,
+            )
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/frontendDelete", api_params)
+            #del from cloud dict
+            if type(front)==dict:
+                del self.lb_facts['frontends'][front['name']]
+            self.result['changed'] = True
+        
+        return
+    def _lb_add_fronts(self,front_list,mod_fronts):
+        for front in front_list:
+            add_front, = list(filter(lambda i: i['name'] == front,mod_fronts))
+            api_params = dict(
+                lbId=self.lb_id,
+                frontendName=add_front['name'],
+                backendName=add_front['backend'],
+                )
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/frontendCreate", api_params)
+            for bind in add_front['bindings']:
+                self._lb_bind_frontend(
+                    add_front['name'],
+                    bind['name'],
+                    bind['address']if "address" in bind else None,
+                    bind['port'] if "port" in bind else None,
+                )
+            return
+    def _lb_create_backends(self,back_list,mod_backs,mod_serv):
+        '''
+        Create backends and add servers to them
+        '''
+        for back in back_list:
+            backend, = list(filter(lambda i: i['name'] == back,mod_backs))
+            api_params = dict(
+                            lbId=self.lb_id,
+                            backendName = back,
+                            algorithm = backend['algorithm'] if "algorithm" in backend else None,
+                            **backend['default_settings'] if "default_settings" in backend else {},
+                            )
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendCreate", api_params)
+
+            for server in mod_serv:
+                try:
+                    srv_back, = list(filter(lambda i: i['name'] == back,server['backends']))
+                except:
+                    continue
+                api_params = dict(
+                                lbId=self.lb_id,
+                                backendName = back,
+                                serverName = server['name'],
+                                address = server['address'],
+                                port = srv_back['port'],
+                                check = srv_back['check'] if "check" in srv_back else None,
+                                **srv_back['server_settings'] if "server_settings" in srv_back else {},
+                                )
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendServerAdd", api_params)
+            
+            self.result['changed'] = True
+
+        return
+    
+    def _lb_update_backends(self,back_list,lb_backs,mod_backs,mod_serv):
+        
+        lb_backs = list(filter(lambda i: i['name'] in back_list,lb_backs))
+        #mod_back =  list(filter(lambda i: i['name'] in back_list,mod_backs))
+
+        for back in lb_backs:
+            
+            del back['serverDefaultSettings']['guid']
+            mod_back, = list(filter(lambda i: i['name']==back['name'],mod_backs))
+            #mod_servers = list(filter(lambda i: i['name']==back['name'],mod_serv))
+            #raise Exception(mod_servers)
+            if "default_settings" not in mod_back:
+                mod_back["default_settings"] = self.default_settings
+            else:
+                for param,value in self.default_settings.items():
+                    if param not in mod_back["default_settings"]:
+                        mod_back["default_settings"].update(param,value)
+
+
+            if "algorithm" not in mod_back:
+                mod_back["algorithm"] = self.default_alg
+            
+            if back['serverDefaultSettings'] != mod_back["default_settings"] or\
+                mod_back["algorithm"] != back['algorithm']:
+                    api_params = dict(
+                            lbId=self.lb_id,
+                            backendName = back['name'],
+                            algorithm = mod_back['algorithm'],
+                            **mod_back['default_settings'],
+                            )
+                    api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendUpdate", api_params)
+                    self.result['changed'] = True
+            
+            lb_servers_list = [srv['name'] for srv in back['servers']]
+            for server in mod_serv:
+                try:
+                    mod_back, = list(filter(lambda i: i['name'] == back['name'],server['backends']))
+                except:
+                    continue
+                if  server['name'] not in lb_servers_list:
+                    api_params = dict(
+                                lbId=self.lb_id,
+                                backendName = mod_back['name'],
+                                serverName = server['name'],
+                                address = server['address'],
+                                port = mod_back['port'],
+                                check = server['check'] if "check" in server else None,
+                                **server['server_settings'] if "server_settings" in server else {},
+                                )
+                    api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendServerAdd", api_params)
+                    self.result['changed'] = True        
+                else:
+                    lb_server, = list(filter(lambda i: i['name'] == server['name'],back['servers']))
+                    del lb_server['serverSettings']['guid']
+
+                    if "server_settings" not in mod_back:
+                        mod_back['server_settings'] = self.default_settings 
+                    else:
+                        for param,value in self.default_settings.items():
+                            if param not in mod_back["server_settings"]:
+                                mod_back["server_settings"].update(param,value)
+                    
+                    if "check" not in mod_back:
+                        mod_back['check'] = self.default_server_check
+
+                    if (server['address'] != lb_server['address'] or\
+                        lb_server['check']!=mod_back['check']) or\
+                        mod_back['server_settings'] != lb_server['serverSettings']:
+                            api_params = dict(
+                                lbId=self.lb_id,
+                                backendName = mod_back['name'],
+                                serverName = server['name'],
+                                address = server['address'],
+                                port = mod_back['port'],
+                                check = mod_back['check'],
+                                **mod_back['server_settings'],
+                                )
+                            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendServerUpdate", api_params)
+                            self.result['changed'] = True
+                    lb_servers_list.remove(server['name'])
+            for server in lb_servers_list:
+                api_params = dict(lbId=self.lb_id,backendName = back['name'],serverName=server)
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/backendServerDelete", api_params)
+                self.result['changed'] = True    
+        return
+    def _lb_update_fronts(self,upd_front_list,lb_frontends,mod_frontends):
+        
+        for front in upd_front_list:
+            mod_front, = list(filter(lambda i: i['name'] == front,mod_frontends))
+            lb_front, = list(filter(lambda i: i['name'] == front,lb_frontends))
+            lb_binds_list = [bind['name'] for bind in lb_front['bindings']]
+            for bind in mod_front['bindings']:
+                if bind['name'] not in lb_binds_list:
+                    pass
+                    self._lb_bind_frontend(
+                        front,
+                        bind['name'],
+                        bind['address']if "address" in bind else None,
+                        bind['port'] if "port" in bind else None,
+                )
+                else:
+                    lb_bind, = list(filter(lambda i: i['name'] == bind['name'],lb_front['bindings']))
+                    del lb_bind['guid']
+
+                    if dict(sorted(bind.items())) != dict(sorted(lb_bind.items())):
+                        self._lb_bind_frontend(
+                            front,
+                            bind['name'],
+                            bind['address']if "address" in bind else None,
+                            bind['port'] if "port" in bind else None,
+                            update=True,
+                        )
+                    lb_binds_list.remove(bind['name'])
+            
+            for lb_bind in lb_binds_list:
+                api_params = dict(
+                    lbId=self.lb_id,
+                    frontendName=front,
+                    bindingName=lb_bind,
+                )
+                api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/lb/frontendBindDelete", api_params)
+                self.result['changed'] = True    
+
+        return
