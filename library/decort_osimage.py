@@ -424,6 +424,7 @@ class decort_osimage(DecortController):
         ret_dict['pool'] = arg_osimage_facts['pool']
         ret_dict['state'] = arg_osimage_facts['status']
         ret_dict['linkto'] = arg_osimage_facts['linkTo']
+        ret_dict['accountId'] = arg_osimage_facts['accountId']
         return ret_dict
 
 
@@ -521,7 +522,8 @@ def main():
         decon.validated_image_id = decort_osimage.decort_osimage_package_facts(image_facts)['id']
 
     
-    elif amodule.params['state'] == "absent" and amodule.params['image_name'] or amodule.params['image_id'] and decort_osimage.decort_osimage_package_facts(image_facts)['accountId'] == amodule.params['account_Id']:
+    elif amodule.params['state'] == "absent" and amodule.params['image_name'] or \
+        amodule.params['image_id'] and decort_osimage.decort_osimage_package_facts(image_facts)['accountId'] == amodule.params['account_Id']:
         amodule.image_id_delete = decon.validated_image_id
         decort_osimage.decort_image_delete(decon,amodule)
     
