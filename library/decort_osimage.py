@@ -522,10 +522,11 @@ def main():
         decon.validated_image_id = decort_osimage.decort_osimage_package_facts(image_facts)['id']
 
     
-    elif amodule.params['state'] == "absent" and amodule.params['image_name'] or \
-        amodule.params['image_id'] and decort_osimage.decort_osimage_package_facts(image_facts)['accountId'] == amodule.params['account_Id']:
-        amodule.image_id_delete = decon.validated_image_id
-        decort_osimage.decort_image_delete(decon,amodule)
+    elif amodule.params['state'] == "absent":
+        if amodule.params['image_name'] or amodule.params['image_id'] and\
+             decort_osimage.decort_osimage_package_facts(image_facts)['accountId'] == amodule.params['account_Id']:
+            amodule.image_id_delete = decon.validated_image_id
+            decort_osimage.decort_image_delete(decon,amodule)
     
 
 
