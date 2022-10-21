@@ -1,0 +1,15 @@
+- hosts: localhost
+  tasks:
+  - name: create
+    decort_rg:
+       authenticator: oauth2
+       controller_url: "https://cloud.digitalenergy.online"
+       rg_name: "old_rg_name"
+       # or
+       #rg_id: 1737
+       account_id: 99
+       rename: "new_rg_name"
+       state: present
+       verify_ssl: false
+    register: my_rg
+    delegate_to: localhost

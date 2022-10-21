@@ -1,0 +1,12 @@
+- hosts: localhost
+  tasks:
+  - name: create
+    decort_rg:
+       authenticator: oauth2
+       controller_url: "https://cloud.digitalenergy.online"
+       rg_id: 999         # rg can be restored only by rg id
+       account_id: 99
+       state: present
+       verify_ssl: false
+    register: my_rg
+    delegate_to: localhost
