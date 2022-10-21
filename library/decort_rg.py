@@ -285,10 +285,11 @@ class decort_rg(DecortController):
                              disk='disksize',
                              ext_ips='extips', 
                              net_transfer='exttraffic',)
-        for quota_item in self.amodule.params['quotas']:
-            if self.amodule.params['quotas'][quota_item] < resources[query_key_map[quota_item]]:
-                incorrect_quota['Requested'][quota_item]=self.amodule.params['quotas'][quota_item]
-                incorrect_quota['Reserved'][quota_item]=resources[query_key_map[quota_item]]
+        if self.amodule.params['quotas']:
+            for quota_item in self.amodule.params['quotas']:
+                if self.amodule.params['quotas'][quota_item] < resources[query_key_map[quota_item]]:
+                    incorrect_quota['Requested'][quota_item]=self.amodule.params['quotas'][quota_item]
+                    incorrect_quota['Reserved'][quota_item]=resources[query_key_map[quota_item]]
 
         if incorrect_quota['Requested']:
             self.result['msg'] = ("Cannot limit less than already reserved'{}'").format(incorrect_quota)
