@@ -248,8 +248,9 @@ class decort_rg(DecortController):
         for rg_item in self.rg_facts['acl']:
             if rg_item['userGroupId'] == self.amodule.params['access']['user']:
                 acc_granted = True
-                if rg_item['right'] != self.amodule.params['access']['right']:
-                    should_change_access = True
+                if rg_item['right']:
+                    if rg_item['right'] != self.amodule.params['access']['right']:
+                        should_change_access = True
                 if self.amodule.params['access']['action'] == 'revoke':
                     should_change_access = True
         if acc_granted == False and self.amodule.params['access']['action'] == 'grant':
