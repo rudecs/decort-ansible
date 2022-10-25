@@ -384,7 +384,10 @@ class decort_rg(DecortController):
         ret_dict['state'] = self.rg_facts['status']
         ret_dict['account_id'] = self.rg_facts['accountId']
         ret_dict['gid'] = self.rg_facts['gid']
-        ret_dict['resourceLimits'] = self.rg_facts['resourceLimits']
+        ret_dict['quota'] = self.rg_facts['resourceLimits']
+        ret_dict['resTypes'] = self.rg_facts['resourceTypes']
+        ret_dict['defNetId'] = self.rg_facts['def_net_id']
+        ret_dict['defNetType'] = self.rg_facts['def_net_type']
 
         return ret_dict
 
