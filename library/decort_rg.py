@@ -209,90 +209,253 @@ from ansible.module_utils.basic import env_fallback
 
 from ansible.module_utils.decort_utils import *
 
+class decort_rg(DecortController):
+    def __init__(self,amodule):
+        super(decort_rg, self).__init__(amodule)
 
-def decort_rg_package_facts(arg_rg_facts, arg_check_mode=False):
-    """Package a dictionary of RG facts according to the decort_rg module specification. This dictionary will
-    be returned to the upstream Ansible engine at the completion of the module run.
+        self.validated_acc_id = 0
+        self.validated_rg_id = 0
+        self.validated_rg_facts = None
 
-    @param arg_rg_facts: dictionary with RG facts as returned by API call to .../rg/get
-    @param arg_check_mode: boolean that tells if this Ansible module is run in check mode
-    """
+        if self.amodule.params['account_id']:
+            self.validated_acc_id, _ = self.account_find("", amodule.params['account_id'])
+        elif amodule.params['account_name']:
+            self.validated_acc_id, _ = self.account_find(amodule.params['account_name'])
+        if not self.validated_acc_id:
+            # we failed to locate account by either name or ID - abort with an error
+            self.result['failed'] = True
+            self.result['msg'] = ("Current user does not have access to the requested account "
+                                    "or non-existent account specified.")
+            self.fail_json(**self.result)
 
-    ret_dict = dict(id=0,
-                    name="none",
-                    state="CHECK_MODE",
-                    )
+        if amodule.params['rg_id'] > 0:
+            self.validated_rg_id = amodule.params['rg_id']
 
-    if arg_check_mode:
-        # in check mode return immediately with the default values
+        # Check if the RG with the specified parameters already exists
+        self.validated_rg_id, self.rg_facts = self.rg_find(self.validated_acc_id,
+                                                            arg_rg_id = self.validated_rg_id, 
+                                                            arg_rg_name=amodule.params['rg_name'],
+                                                            arg_check_state=False)
+
+        if amodule.params['state'] != "absent":
+            self.rg_should_exist = True
+        else:
+            self.rg_should_exist = False
+
+    def access(self):
+        should_change_access = False
+        acc_granted = False
+        for rg_item in self.rg_facts['acl']:
+            if rg_item['userGroupId'] == self.amodule.params['access']['user']:
+                acc_granted = True
+                if self.amodule.params['access']['action'] == 'grant':
+                    if rg_item['right'] != self.amodule.params['access']['right']:
+                        should_change_access = True
+                if self.amodule.params['access']['action'] == 'revoke':
+                    should_change_access = True
+        if acc_granted == False and self.amodule.params['access']['action'] == 'grant':
+            should_change_access = True
+
+        if should_change_access == True:
+            self.rg_access(self.validated_rg_id, self.amodule.params['access'])
+            self.rg_facts['access'] = self.amodule.params['access']
+        self.rg_should_exist = True
+        return
+
+    def error(self):
+        self.result['failed'] = True
+        self.result['changed'] = False
+        if self.validated_rg_id > 0:
+            self.result['msg'] = ("Invalid target state '{}' requested for rg ID {} in the "
+                                   "current status '{}'.").format(self.validated_rg_id,
+                                                                  self.amodule.params['state'],
+                                                                  self.rg_facts['status'])
+        else:
+            self.result['msg'] = ("Invalid target state '{}' requested for non-existent rg name '{}' "
+                                   "in account ID {} ").format(self.amodule.params['state'],
+                                                               self.amodule.params['rg_name'],
+                                                               self.validated_acc_id)
+        return
+    
+    def update(self):
+        resources = self.rg_facts['Resources']['Reserved']
+        incorrect_quota = dict(Requested=dict(),
+                               Reserved=dict(),)
+        query_key_map = dict(cpu='cpu',
+                             ram='ram',
+                             disk='disksize',
+                             ext_ips='extips', 
+                             net_transfer='exttraffic',)
+        if self.amodule.params['quotas']:
+            for quota_item in self.amodule.params['quotas']:
+                if self.amodule.params['quotas'][quota_item] < resources[query_key_map[quota_item]]:
+                    incorrect_quota['Requested'][quota_item]=self.amodule.params['quotas'][quota_item]
+                    incorrect_quota['Reserved'][quota_item]=resources[query_key_map[quota_item]]
+
+        if incorrect_quota['Requested']:
+            self.result['msg'] = ("Cannot limit less than already reserved'{}'").format(incorrect_quota)
+            self.result['failed'] = True
+        
+        if self.result['failed'] != True:
+            self.rg_update(self.rg_facts, self.amodule.params['quotas'], 
+                           self.amodule.params['resType'], self.amodule.params['rename'])
+            self.rg_should_exist = True
+        return
+    
+    def setDefNet(self):
+        if self.amodule.params['def_netId'] != self.rg_facts['def_net_id']:
+            self.rg_setDefNet(self.validated_rg_id,
+                              self.amodule.params['def_netType'],
+                              self.amodule.params['def_netId'])
+        self.rg_should_exist = True
+        return
+
+    def create(self):
+        self.validated_rg_id = self.rg_provision(self.validated_acc_id,
+                                        self.amodule.params['rg_name'], 
+                                        self.amodule.params['owner'],
+                                        self.amodule.params['annotation'],
+                                        self.amodule.params['resType'],
+                                        self.amodule.params['def_netType'],
+                                        self.amodule.params['ipcidr'],
+                                        self.amodule.params['extNetId'],
+                                        self.amodule.params['extNetIp'],
+                                        self.amodule.params['quotas'],
+                                        "", # this is location code. TODO: add module argument
+                                        )
+
+        self.validated_rg_id, self.rg_facts = self.rg_find(self.validated_acc_id,
+                                        self.validated_rg_id, 
+                                        arg_rg_name="",
+                                        arg_check_state=False)
+        self.rg_should_exist = True 
+        return
+    
+    def enable(self):
+        self.rg_enable(self.validated_rg_id, 
+                       self.amodule.params['state'])
+        if self.amodule.params['state'] == "enabled":
+            self.rg_facts['status'] = 'CREATED'
+        else:
+            self.rg_facts['status'] = 'DISABLED'
+        self.rg_should_exist = True
+        return
+    
+    def restore(self):
+        self.rg_restore(self.validated_rg_id)
+        self.rg_facts['status'] = 'DISABLED'
+        self.rg_should_exist = True
+        return
+        
+    def destroy(self):
+
+        self.rg_delete(self.validated_rg_id, self.amodule.params['permanently'])
+        if self.amodule.params['permanently'] == True:
+            self.rg_facts['status'] = 'DESTROYED'
+        else:
+            self.rg_facts['status'] = 'DELETED'
+        self.rg_should_exist = False
+        return
+
+    def package_facts(self, check_mode=False):
+        """Package a dictionary of RG facts according to the decort_rg module specification. This dictionary will
+        be returned to the upstream Ansible engine at the completion of the module run.
+
+        @param arg_rg_facts: dictionary with RG facts as returned by API call to .../rg/get
+        @param arg_check_mode: boolean that tells if this Ansible module is run in check mode
+        """
+
+        ret_dict = dict(id=0,
+                        name="none",
+                        state="CHECK_MODE",
+                        )
+
+        if check_mode:
+            # in check mode return immediately with the default values
+            return ret_dict
+
+        #if arg_rg_facts is None:
+        #    # if void facts provided - change state value to ABSENT and return
+        #    ret_dict['state'] = "ABSENT"
+        #    return ret_dict
+
+        ret_dict['id'] = self.rg_facts['id']
+        ret_dict['name'] = self.rg_facts['name']
+        ret_dict['state'] = self.rg_facts['status']
+        ret_dict['account_id'] = self.rg_facts['accountId']
+        ret_dict['gid'] = self.rg_facts['gid']
+        ret_dict['quota'] = self.rg_facts['resourceLimits']
+        ret_dict['resTypes'] = self.rg_facts['resourceTypes']
+        ret_dict['defNetId'] = self.rg_facts['def_net_id']
+        ret_dict['defNetType'] = self.rg_facts['def_net_type']
+
         return ret_dict
 
-    if arg_rg_facts is None:
-        # if void facts provided - change state value to ABSENT and return
-        ret_dict['state'] = "ABSENT"
-        return ret_dict
+    def parameters():
+        """Build and return a dictionary of parameters expected by decort_rg module in a form accepted
+        by AnsibleModule utility class."""
 
-    ret_dict['id'] = arg_rg_facts['id']
-    ret_dict['name'] = arg_rg_facts['name']
-    ret_dict['state'] = arg_rg_facts['status']
-    ret_dict['account_id'] = arg_rg_facts['accountId']
-    ret_dict['gid'] = arg_rg_facts['gid']
-
-    return ret_dict
-
-def decort_rg_parameters():
-    """Build and return a dictionary of parameters expected by decort_rg module in a form accepted
-    by AnsibleModule utility class."""
-
-    return dict(
-        account_id=dict(type='int', required=False),
-        account_name=dict(type='str', required=False, default=''),
-        annotation=dict(type='str', required=False, default=''),
-        app_id=dict(type='str',
-                    required=False,
-                    fallback=(env_fallback, ['DECORT_APP_ID'])),
-        app_secret=dict(type='str',
+        return dict(
+            account_id=dict(type='int', required=False),
+            account_name=dict(type='str', required=False, default=''),
+            access=dict(type='dict'),
+            annotation=dict(type='str', required=False, default=''),
+            app_id=dict(type='str',
                         required=False,
-                        fallback=(env_fallback, ['DECORT_APP_SECRET']),
-                        no_log=True),
-        authenticator=dict(type='str',
-                           required=True,
-                           choices=['legacy', 'oauth2', 'jwt']),
-        controller_url=dict(type='str', required=True),
-        # datacenter=dict(type='str', required=False, default=''),
-        jwt=dict(type='str',
-                 required=False,
-                 fallback=(env_fallback, ['DECORT_JWT']),
-                 no_log=True),
-        oauth2_url=dict(type='str',
-                        required=False,
-                        fallback=(env_fallback, ['DECORT_OAUTH2_URL'])),
-        password=dict(type='str',
+                        fallback=(env_fallback, ['DECORT_APP_ID'])),
+            app_secret=dict(type='str',
+                            required=False,
+                            fallback=(env_fallback, ['DECORT_APP_SECRET']),
+                            no_log=True),
+            authenticator=dict(type='str',
+                               required=True,
+                               choices=['legacy', 'oauth2', 'jwt']),
+            controller_url=dict(type='str', required=True),
+            # datacenter=dict(type='str', required=False, default=''),
+            def_netType=dict(type='str', choices=['PRIVATE','PUBLIC', 'NONE'], default='PRIVATE'),
+            def_netId=dict(type='int', default=0),
+            extNetId=dict(type='int', default=0),
+            extNetIp=dict(type='str', default=""),
+            owner=dict(type='str', default=""),
+            ipcidr=dict(type='str', default=""),
+            jwt=dict(type='str',
+                     required=False,
+                     fallback=(env_fallback, ['DECORT_JWT']),
+                    no_log=True),
+            oauth2_url=dict(type='str',
+                            required=False,
+                            fallback=(env_fallback, ['DECORT_OAUTH2_URL'])),
+            rename=dict(type='str', default=""),
+            password=dict(type='str',
+                          required=False,
+                          fallback=(env_fallback, ['DECORT_PASSWORD']),
+                          no_log=True),
+            quotas=dict(type='dict', required=False),
+            resType=dict(type='list'),
+            state=dict(type='str',
+                       default='present',
+                       choices=['absent', 'disabled', 'enabled', 'present']),
+            permanently=dict(type='bool',
+                             default='False'),
+            user=dict(type='str',
                       required=False,
-                      fallback=(env_fallback, ['DECORT_PASSWORD']),
-                      no_log=True),
-        quotas=dict(type='dict', required=False),
-        state=dict(type='str',
-                   default='present',
-                   choices=['absent', 'disabled', 'enabled', 'present']),
-        user=dict(type='str',
-                  required=False,
-                  fallback=(env_fallback, ['DECORT_USER'])),
-        rg_name=dict(type='str', required=True,),
-        verify_ssl=dict(type='bool', required=False, default=True),
-        workflow_callback=dict(type='str', required=False),
-        workflow_context=dict(type='str', required=False),
-    )
+                      fallback=(env_fallback, ['DECORT_USER'])),
+            rg_name=dict(type='str', required=False,),
+            rg_id=dict(type='int', required=False, default=0),
+            verify_ssl=dict(type='bool', required=False, default=True),
+            workflow_callback=dict(type='str', required=False),
+            workflow_context=dict(type='str', required=False),
+        )
 
-# Workflow digest:
-# 1) authenticate to DECORT controller & validate authentication by issuing API call - done when creating DECORTController
-# 2) check if the RG with the specified id or rg_name:name exists
-# 3) if RG does not exist -> deploy
-# 4) if RG exists: check desired state, desired configuration -> initiate action accordingly
-# 5) report result to Ansible
+    # Workflow digest:
+    # 1) authenticate to DECORT controller & validate authentication by issuing API call - done when creating DECORTController
+    # 2) check if the RG with the specified id or rg_name:name exists
+    # 3) if RG does not exist -> deploy
+    # 4) if RG exists: check desired state, desired configuration -> initiate action accordingly
+    # 5) report result to Ansible
 
 def main():
-    module_parameters = decort_rg_parameters()
+    module_parameters = decort_rg.parameters()
 
     amodule = AnsibleModule(argument_spec=module_parameters,
                             supports_check_mode=True,
@@ -307,157 +470,52 @@ def main():
                             ],
                             )
 
-    decon = DecortController(amodule)
-
-    # We need valid Account ID to manage RG.
-    # Account may be specified either by account_id or account_name. In both cases we
-    # have to validate account presence and accesibility by the current user.
-    validated_acc_id = 0
-    if decon.check_amodule_argument('account_id', False):
-        validated_acc_id, _ = decon.account_find("", amodule.params['account_id'])
-    else:
-        decon.check_amodule_argument('account_name') # if no account_name, this function will abort module
-        validated_acc_id, _ = decon.account_find(amodule.params['account_name'])
-
-    if not validated_acc_id:
-        # we failed to locate account by either name or ID - abort with an error
-        decon.result['failed'] = True
-        decon.result['msg'] = ("Current user does not have access to the requested account "
-                                "or non-existent account specified.")
-        decon.fail_json(**decon.result)
-
-    # Check if the RG with the specified parameters already exists
-    rg_id, rg_facts = decon.rg_find(validated_acc_id,
-                                    0, arg_rg_name=amodule.params['rg_name'],
-                                    arg_check_state=False)
-    rg_should_exist = True
-
-    if rg_id:
-        if rg_facts['status'] in ["MODELED", "DISABLING", "ENABLING", "DELETING", "DESTROYING"]:
-            # error: nothing can be done to existing RG in the listed statii regardless of
-            # the requested state
-            decon.result['failed'] = True
-            decon.result['changed'] = False
-            decon.result['msg'] = ("No change can be done for existing RG ID {} because of its current "
-                                   "status '{}'").format(rg_id, rg_facts['status'])
-        elif rg_facts['status'] == "DISABLED":
+    decon = decort_rg(amodule)
+    #amodule.check_mode=True
+    if decon.validated_rg_id > 0:
+        if decon.rg_facts['status'] in ["MODELED", "DISABLING", "ENABLING", "DELETING", "DESTROYING", "CONFIRMED"]:
+            decon.error()
+        elif decon.rg_facts['status'] in ("CREATED"):
             if amodule.params['state'] == 'absent':
-                decon.rg_delete(arg_rg_id=rg_id, arg_permanently=True)
-                rg_facts['status'] = 'DESTROYED'
-                rg_should_exist = False
-            elif amodule.params['state'] in ('present', 'disabled'):
-                # update quotas
-                decon.rg_quotas(rg_facts, amodule.params['quotas'])
-            elif amodule.params['state'] == 'enabled':
-                # update quotas and enable
-                decon.rg_quotas(rg_facts, amodule.params['quotas'])
-                decon.rg_state(rg_facts, 'enabled')
-        elif rg_facts['status'] == "CREATED":
-            if amodule.params['state'] == 'absent':
-                decon.rg_delete(arg_rg_id=rg_id, arg_permanently=True)
-                rg_facts['status'] = 'DESTROYED'
-                rg_should_exist = False
-            elif amodule.params['state'] in ('present', 'enabled'):
-                # update quotas
-                decon.rg_quotas(rg_facts, amodule.params['quotas'])
-            elif amodule.params['state'] == 'disabled':
-                # disable and update quotas
-                decon.rg_state(rg_facts, 'disabled')
-                decon.rg_quotas(rg_facts, amodule.params['quotas'])
-        elif rg_facts['status'] == "DELETED":
+                decon.destroy()
+            elif amodule.params['state'] == "disabled":
+                decon.enable()
             if amodule.params['state'] in ['present', 'enabled']:
-                # restore and enable
-                # TODO: check if restore RG API returns the new RG ID of the restored RG instance.
-                decon.rg_restore(arg_rg_id=rg_id)
-                decon.rg_state(rg_facts, 'enabled')
-                # TODO: Not sure what to do with the quotas after RG is restored. May need to update rg_facts.
-                rg_should_exist = True
-            elif amodule.params['state'] == 'absent':
-                # destroy permanently
-                decon.rg_delete(arg_rg_id=rg_id, arg_permanently=True)
-                rg_facts['status'] = 'DESTROYED'
-                rg_should_exist = False
-            elif amodule.params['state'] == 'disabled':
-                # error
-                decon.result['failed'] = True
-                decon.result['changed'] = False
-                decon.result['msg'] = ("Invalid target state '{}' requested for RG ID {} in the "
-                                       "current status '{}'").format(rg_id,
-                                                                     amodule.params['state'],
-                                                                     rg_facts['status'])
-                rg_should_exist = False
-        elif rg_facts['status'] == "DESTROYED":
-            if amodule.params['state'] in ('present', 'enabled'):
-                # need to re-provision RG
-                decon.check_amodule_argument('rg_name')
-                # As we already have validated account ID we can create RG and get rg_id on success
-                # pass empty string for location code, rg_provision will select the 1st location  
-                rg_id = decon.rg_provision(validated_acc_id,
-                                            amodule.params['rg_name'], decon.decort_username,
-                                            amodule.params['quotas'],
-                                            "", # this is location code. TODO: add module argument
-                                            amodule.params['annotation'])
-                rg_should_exist = True
-            elif amodule.params['state'] == 'absent':
-                # nop
-                decon.result['failed'] = False
-                decon.result['changed'] = False
-                decon.result['msg'] = ("No state change required for RG ID {} because of its "
-                                       "current status '{}'").format(rg_id,
-                                                                     rg_facts['status'])
-                rg_should_exist = False
-            elif amodule.params['state'] == 'disabled':
-                # error
-                decon.result['failed'] = True
-                decon.result['changed'] = False
-                decon.result['msg'] = ("Invalid target state '{}' requested for RG ID {} in the "
-                                       "current status '{}'").format(rg_id,
-                                                                     amodule.params['state'],
-                                                                     rg_facts['status'])
+                if amodule.params['quotas'] or amodule.params['resType'] or amodule.params['rename'] != "":
+                    decon.update()
+                if amodule.params['access']:
+                    decon.access()
+                if amodule.params['def_netId'] > 0:
+                    decon.setDefNet()
+
+        elif decon.rg_facts['status'] == "DELETED":
+            if amodule.params['state'] == 'absent' and amodule.params['permanently'] == True:
+                decon.destroy()
+            elif amodule.params['state'] == 'present':
+                decon.restore()
+        elif decon.rg_facts['status'] in ("DISABLED"):
+            if amodule.params['state'] == 'absent':
+                decon.destroy()
+            elif amodule.params['state'] == ("enabled"):
+                decon.enable()
+
     else:
-        # Preexisting RG was not found.
-        rg_should_exist = False  # we will change it back to True if RG is explicitly created or restored
-        # If requested state is 'absent' - nothing to do
-        if amodule.params['state'] == 'absent':
-            decon.result['failed'] = False
-            decon.result['changed'] = False
-            decon.result['msg'] = ("Nothing to do as target state 'absent' was requested for "
-                                   "non-existent RG name '{}'").format(amodule.params['rg_name'])
-        elif amodule.params['state'] in ('present', 'enabled'):
-            # Target RG does not exist yet - create it and store the returned ID in rg_id variable for later use
-            # To create RG we need account name (or account ID) and RG name - check
-            # that these parameters are present and proceed.
-            decon.check_amodule_argument('rg_name')
-            # as we already have account ID we can create RG and get rg_id on success
-            # pass empty string for location code, rg_provision will select the 1st location 
-            rg_id = decon.rg_provision(validated_acc_id,
-                                        amodule.params['rg_name'], decon.decort_username,
-                                        amodule.params['quotas'],
-                                        "", # this is location code. TODO: add module argument
-                                        amodule.params['annotation'])
-            rg_should_exist = True            
-        elif amodule.params['state'] == 'disabled':
-            decon.result['failed'] = True
-            decon.result['changed'] = False
-            decon.result['msg'] = ("Invalid target state '{}' requested for non-existent "
-                                   "RG name '{}' ").format(amodule.params['state'],
-                                                            amodule.params['rg_name'])
-    #
-    # conditional switch end - complete module run
+        if amodule.params['state'] in ('present', 'enabled'):
+            decon.create() 
+            if amodule.params['access']:
+                decon.access()
+        elif amodule.params['state'] in ('disabled'):
+            decon.error()
+        
+
     if decon.result['failed']:
         amodule.fail_json(**decon.result)
     else:
-        # prepare RG facts to be returned as part of decon.result and then call exit_json(...)
-        # rg_facts = None
-        if rg_should_exist:
-            if decon.result['changed']:
-                # If we arrive here, there is a good chance that the RG is present - get fresh RG facts from
-                # the cloud by RG ID.
-                # Otherwise, RG facts from previous call (when the RG was still in existence) will be returned.
-                _, rg_facts = decon.rg_find(arg_account_id=0, arg_rg_id=rg_id)
-        decon.result['facts'] = decort_rg_package_facts(rg_facts, amodule.check_mode)
-        amodule.exit_json(**decon.result)
-
+        if decon.rg_should_exist:
+            decon.result['facts'] = decon.package_facts(amodule.check_mode)
+            amodule.exit_json(**decon.result)
+        else:
+            amodule.exit_json(**decon.result)
 
 if __name__ == "__main__":
     main()

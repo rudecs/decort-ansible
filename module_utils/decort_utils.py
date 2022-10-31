@@ -1442,7 +1442,7 @@ class DecortController(object):
     ###################################
     # Resource Group (RG) manipulation methods
     ###################################
-    def rg_delete(self, rg_id, permanently=False):
+    def rg_delete(self, rg_id, permanently):
         """Deletes specified VDC.
 
         @param (int) rg_id: integer value that identifies the RG to be deleted.
@@ -1500,7 +1500,27 @@ class DecortController(object):
 
         return ret_rg_id, ret_rg_dict
 
-    def rg_find(self, arg_account_id, arg_rg_id=0, arg_rg_name="", arg_check_state=True):
+    def rg_access(self, arg_rg_id, arg_access):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "rg_access")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("rg_access() in check mode: access to RG id '{}' was "
+                                  "requested with '{}'.").format(arg_rg_id, arg_access)
+            return 0
+
+        api_params=dict(rgId=arg_rg_id,)
+        if arg_access['action'] == "grant":
+            api_params['user']=arg_access['user'],
+            api_params['right']=arg_access['right'],
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/accessGrant", api_params)
+        else:
+            api_params['user']=arg_access['user'],
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/accessRevoke", api_params)
+        self.result['changed'] = True
+        return
+
+    def rg_find(self, arg_account_id, arg_rg_id, arg_rg_name="", arg_check_state=True):
         """Returns non zero RG ID and a dictionary with RG details on success, 0 and empty dictionary otherwise.
         This method does not fail the run if RG cannot be located by its name (arg_rg_name), because this could be
         an indicator of the requested RG never existed before.
@@ -1529,7 +1549,7 @@ class DecortController(object):
 
         self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "rg_find")
 
-        ret_rg_id = 0
+        ret_rg_id = arg_rg_id
         api_params = dict()
         ret_rg_dict = None
 
@@ -1574,7 +1594,44 @@ class DecortController(object):
 
         return ret_rg_id, ret_rg_dict
 
-    def rg_provision(self, arg_account_id, arg_rg_name, arg_username, arg_quota={}, arg_location="", arg_desc=""):
+    def rg_setDefNet(self, arg_rg_id, arg_net_type, arg_net_id):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "rg_setDefNet")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("rg_setDefNet() in check mode: setDefNet RG id '{}' was "
+                                  "requested.").format(arg_rg_id)
+            return 0
+
+        if arg_net_type == "NONE":
+            arg_net_type = "PRIVATE"
+        api_params = dict(rgId=arg_rg_id,
+                          netType=arg_net_type,
+                          netId=arg_net_id,)
+        api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/setDefNet", api_params)
+        self.result['changed'] = True
+        return
+
+        
+    def rg_enable(self, arg_rg_id, arg_state):
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "rg_enable")
+
+        if self.amodule.check_mode:
+            self.result['failed'] = False
+            self.result['msg'] = ("rg_enable() in check mode: '{}' RG id '{}' was "
+                                  "requested.").format(arg_state, arg_rg_id)
+            return 0
+
+        api_params = dict(rgId=arg_rg_id)
+
+        if arg_state == "enabled":
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/enable", api_params)
+        else:
+            api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/disable", api_params)
+        self.result['changed'] = True
+        return
+
+    def rg_provision(self, arg_account_id, arg_rg_name, arg_username, arg_desc, restype, arg_net_type, ipcidr, arg_extNetId, arg_extIp, arg_quota={}, location=""):
         """Provision new RG according to the specified arguments.
         If critical error occurs the embedded call to API function will abort further execution of the script
         and relay error to Ansible.
@@ -1587,7 +1644,7 @@ class DecortController(object):
         access to the newly created RG.
         @param arg_quota: dictionary that defines quotas to set on the RG to be created. Valid keys are: cpu, ram,
         disk and ext_ips.
-        @param (string) arg_location: location code, which identifies the location where RG will be created. If 
+        @param (string) location: location code, which identifies the location where RG will be created. If 
         empty string is passed, the first location under current DECORT controller will be selected.
         @param (string) arg_desc: optional text description of this resource group.
 
@@ -1602,20 +1659,23 @@ class DecortController(object):
                                   "requested.").format(arg_rg_name)
             return 0
 
-        target_gid = self.gid_get(arg_location)
+        target_gid = self.gid_get(location)
         if not target_gid:
             self.result['failed'] = True
             self.result['msg'] = ("rg_provision() failed to obtain valid Grid ID for location '{}'").format(
-                arg_location)
+                location)
             self.amodule.fail_json(**self.result)
 
         api_params = dict(accountId=arg_account_id,
                           gid=target_gid,
                           name=arg_rg_name,
                           owner=arg_username,
-                          def_net="NONE",
+                          def_net=arg_net_type,
+                          extNetId=arg_extNetId,
+                          extIp=arg_extIp,
                           # maxMemoryCapacity=-1, maxVDiskCapacity=-1,
                           # maxCPUCapacity=-1, maxNumPublicIP=-1,
+                          # maxNetworkPeerTransfer=-1,
                           )
         if arg_quota:
             if 'ram' in arg_quota:
@@ -1626,9 +1686,20 @@ class DecortController(object):
                 api_params['maxCPUCapacity'] = arg_quota['cpu']
             if 'ext_ips' in arg_quota:
                 api_params['maxNumPublicIP'] = arg_quota['ext_ips']
+            if 'net_transfer' in arg_quota:
+                api_params['maxNetworkPeerTransfer'] = arg_quota['net_transfer']
+
+        if restype:
+            api_params['resourceTypes'] = restype
 
         if arg_desc:
             api_params['desc'] = arg_desc
+        
+        api_params['def_net'] = arg_net_type
+        if arg_net_type == "PRIVATE" and ipcidr !="":
+            api_params['ipcidr'] = ipcidr            
+
+
 
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/create", api_params)
         # On success the above call will return here. On error it will abort execution by calling fail_json.
@@ -1639,7 +1710,8 @@ class DecortController(object):
         return ret_rg_id
 
     # TODO: this method will not work in its current implementation. Update it for new .../rg/update specs.
-    def rg_quotas(self, arg_rg_dict, arg_quotas):
+
+    def rg_update(self, arg_rg_dict, arg_quotas, arg_res_types, arg_newname):
         """Manage quotas for an existing RG.
 
         @param arg_rg_dict: dictionary with RG facts as returned by rg_find(...) method or .../rg/get API
@@ -1653,13 +1725,27 @@ class DecortController(object):
         # TODO: this method may need update since we introduced GPU functionality and corresponding GPU quota management.
         #
 
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "rg_quotas")
+        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "rg_update")
 
         if self.amodule.check_mode:
             self.result['failed'] = False
-            self.result['msg'] = ("rg_quotas() in check mode: setting quotas on RG ID {}, RG name '{}' was "
+            self.result['msg'] = ("rg_update() in check mode: setting quotas on RG ID {}, RG name '{}' was "
                                   "requested.").format(arg_rg_dict['id'], arg_rg_dict['name'])
             return
+
+        update_required = False
+        api_params = dict(rgId=arg_rg_dict['id'],)
+
+        if arg_res_types:
+            if arg_rg_dict['resourceTypes'] != arg_res_types:
+                api_params['resourceTypes'] = arg_res_types
+                update_required = True
+            else:
+                api_params['resourceTypes'] = arg_rg_dict['resourceTypes']
+        
+        if arg_newname != "" and arg_newname!=arg_rg_dict['name']:
+            api_params['name'] = arg_newname
+            update_required = True
 
         # One more inconsistency in API keys:
         # - when setting resource limits, the keys are in the form 'max{{ RESOURCE_NAME }}Capacity'
@@ -1667,32 +1753,31 @@ class DecortController(object):
         query_key_map = dict(cpu='CU_C',
                              ram='CU_M',
                              disk='CU_D',
-                             ext_ips='CU_I', )
+                             ext_ips='CU_I', 
+                             net_transfer='CU_NP',)
         set_key_map = dict(cpu='maxCPUCapacity',
                            ram='maxMemoryCapacity',
                            disk='maxVDiskCapacity',
-                           ext_ips='maxNumPublicIP', )
-        api_params = dict(rgId=arg_rg_dict['id'], )
-        quota_change_required = False
+                           ext_ips='maxNumPublicIP', 
+                           net_transfer='maxNetworkPeerTransfer',)
 
-        for new_limit in ('cpu', 'ram', 'disk', 'ext_ips'):
+        for new_limit in ('cpu', 'ram', 'disk', 'ext_ips', 'net_transfer'):
             if arg_quotas:
                 if new_limit in arg_quotas:
                     # If this resource type limit is found in the desired quotas, check if the desired setting is
                     # different from the current settings of VDC. If it is different, set the new one.
                     if arg_quotas[new_limit] != arg_rg_dict['resourceLimits'][query_key_map[new_limit]]:
                         api_params[set_key_map[new_limit]] = arg_quotas[new_limit]
-                        quota_change_required = True
+                        update_required = True
+                    elif arg_quotas[new_limit] == arg_rg_dict['resourceLimits'][query_key_map[new_limit]]:
+                        api_params[set_key_map[new_limit]] = arg_quotas[new_limit]
                 else:
-                    # This resource type limit not found in the desired quotas. It means that no limit for this
-                    # resource type - reset VDC limit for this resource type regardless of the current VDC settings.
-                    api_params[set_key_map[new_limit]] = -1
-                    # quota_change_required = True
+                    api_params[set_key_map[new_limit]] = arg_rg_dict['resourceLimits'][query_key_map[new_limit]]
             else:
                 # if quotas dictionary is None, it means that no quotas should be set - reset the limits
-                api_params[set_key_map[new_limit]] = -1
+                api_params[set_key_map[new_limit]] = arg_rg_dict['resourceLimits'][query_key_map[new_limit]]
 
-        if quota_change_required:
+        if update_required:
             self.decort_api_call(requests.post, "/restmachine/cloudapi/rg/update", api_params)
             # On success the above call will return here. On error it will abort execution by calling fail_json.
             self.result['failed'] = False
@@ -1720,66 +1805,6 @@ class DecortController(object):
         # On success the above call will return here. On error it will abort execution by calling fail_json.
         self.result['failed'] = False
         self.result['changed'] = True
-        return
-
-    def rg_state(self, arg_rg_dict, arg_desired_state):
-        """Enable or disable RG.
-
-        @param arg_rg_dict: dictionary with the target RG facts as returned by rg_find(...) method or
-        .../rg/get API call.
-        @param arg_desired_state: the desired state for this RG. Valid states are 'enabled' and 'disabled'.
-        """
-
-        self.result['waypoints'] = "{} -> {}".format(self.result['waypoints'], "rg_state")
-
-        NOP_STATES_FOR_RG_CHANGE = ["MODELED", "DISABLING", "ENABLING", "DELETING", "DELETED", "DESTROYING",
-                                    "DESTROYED"]
-        VALID_TARGET_STATES = ["enabled", "disabled"]
-
-        if arg_rg_dict['status'] in NOP_STATES_FOR_RG_CHANGE:
-            self.result['failed'] = False
-            self.result['msg'] = ("rg_state(): no state change possible for RG ID {} "
-                                  "in its current state '{}'.").format(arg_rg_dict['id'], arg_rg_dict['status'])
-            return
-
-        if arg_desired_state not in VALID_TARGET_STATES:
-            self.result['failed'] = False
-            self.result['warning'] = ("rg_state(): unrecognized desired state '{}' requested "
-                                      "for RG ID {}. No RG state change will be done.").format(arg_desired_state,
-                                                                                               arg_rg_dict['id'])
-            return
-
-        if self.amodule.check_mode:
-            self.result['failed'] = False
-            self.result['msg'] = ("rg_state() in check mode: setting state of RG ID {}, name '{}' to "
-                                  "'{}' was requested.").format(arg_rg_dict['id'], arg_rg_dict['name'],
-                                                                arg_desired_state)
-            return
-
-        rgstate_api = ""  # this string will also be used as a flag to indicate that API call is necessary
-        api_params = dict(rgId=arg_rg_dict['id'],
-                          reason='Changed by DECORT Ansible module, rg_state method.')
-        expected_state = ""
-
-        if arg_rg_dict['status'] in ["CREATED", "ENABLED"] and arg_desired_state == 'disabled':
-            rgstate_api = "/restmachine/cloudapi/rg/disable"
-            expected_state = "DISABLED"
-        elif arg_rg_dict['status'] == "DISABLED" and arg_desired_state == 'enabled':
-            rgstate_api = "/restmachine/cloudapi/rg/enable"
-            expected_state = "ENABLED"
-
-        if rgstate_api != "":
-            self.decort_api_call(requests.post, rgstate_api, api_params)
-            # On success the above call will return here. On error it will abort execution by calling fail_json.
-            self.result['failed'] = False
-            self.result['changed'] = True
-            arg_rg_dict['status'] = expected_state
-        else:
-            self.result['failed'] = False
-            self.result['msg'] = ("rg_state(): no state change required for RG ID {} from current "
-                                  "state '{}' to desired state '{}'.").format(arg_rg_dict['id'],
-                                                                              arg_rg_dict['status'],
-                                                                              arg_desired_state)
         return
 
     def account_find(self, account_name, account_id=0):
@@ -1971,10 +1996,13 @@ class DecortController(object):
         ret_gid = 0
         api_params = dict()
         api_resp = self.decort_api_call(requests.post, "/restmachine/cloudapi/locations/list", api_params)
+
+        
+
         if api_resp.status_code == 200:
             locations = json.loads(api_resp.content.decode('utf8'))
             if location_code == "" and locations:
-                ret_gid = locations['gid']
+                ret_gid = locations[0]['gid']
             else:
                 for runner in locations:
                     if runner['locationCode'] == location_code:
